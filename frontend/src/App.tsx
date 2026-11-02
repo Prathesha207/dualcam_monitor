@@ -97,6 +97,25 @@ export default function App() {
           clipDurationMinutes: c.clip_duration_minutes ?? 1,
         }));
         setCameras(mapped);
+
+        // Check for invalid IP syntax right away
+        setConnectionErrors((prev) => {
+          const next = { ...prev };
+          mapped.forEach((c) => {
+            const ip = (c.ipAddress || '').trim();
+            const isIp = Boolean(ip && ip.includes('.') && !ip.toLowerCase().includes('usb'));
+            if (isIp) {
+              const parts = ip.split('.');
+              const isSyntaxValid =
+                parts.length === 4 &&
+                parts.every((p) => /^\d+$/.test(p) && parseInt(p, 10) >= 0 && parseInt(p, 10) <= 255);
+              if (c.id !== undefined && !isSyntaxValid) {
+                next[c.id] = `Invalid IP address format: "${ip}". Expected a valid IPv4 address (e.g. 169.254.21.191).`;
+              }
+            }
+          });
+          return next;
+        });
       }
     } catch (err: any) {
       console.warn('Failed to load cameras from database:', err);
@@ -108,13 +127,22 @@ export default function App() {
       refreshCameras();
       // Probe active hardware stream state from backend
       cameraService.health().then((h) => {
-        if (h && (h.running || h.streaming)) {
+        if (h) {
           const allCams = h.all_cameras || {};
           setStreamingStates((prev) => {
             const next = { ...prev };
             Object.keys(allCams).forEach((cid) => {
               if (allCams[cid]?.streaming || allCams[cid]?.running) {
                 next[Number(cid)] = true;
+              }
+            });
+            return next;
+          });
+          setConnectionErrors((prev) => {
+            const next = { ...prev };
+            Object.keys(allCams).forEach((cid) => {
+              if (allCams[cid]?.last_error) {
+                next[Number(cid)] = allCams[cid].last_error;
               }
             });
             return next;
@@ -196,27 +224,60 @@ export default function App() {
   const handleToggleEnable = useCallback(
     async (id: number, currentEnabled: boolean) => {
       try {
-        setConnectionErrors((prev) => ({ ...prev, [id]: null }));
         if (currentEnabled) {
           // Disable hardware
           if (streamingStates[id]) {
             await handleStopStream(id);
           }
           await cameraService.disableCamera(id);
+          setConnectionErrors((prev) => ({ ...prev, [id]: null }));
           showToast('info', `Camera ${id} hardware disabled`);
           addLog(`Disabled hardware on camera ${id}`, 'warn');
+          await refreshCameras();
         } else {
           // Enable hardware
           await cameraService.enableCamera(id);
-          showToast('success', `Camera ${id} hardware enabled`);
-          addLog(`Enabled hardware on camera ${id}`, 'info');
+          const cam = cameras.find((c) => c.id === id);
+          const chosenIp = (cam?.ipAddress || '').trim();
+
+          // 1. Check IP syntax if configured as IP
+          const isIp = Boolean(chosenIp && chosenIp.includes('.') && !chosenIp.toLowerCase().includes('usb'));
+          if (isIp) {
+            const parts = chosenIp.split('.');
+            const isSyntaxValid =
+              parts.length === 4 &&
+              parts.every((p) => /^\d+$/.test(p) && parseInt(p, 10) >= 0 && parseInt(p, 10) <= 255);
+            if (!isSyntaxValid) {
+              const msg = `Invalid IP address format: "${chosenIp}". Expected a valid IPv4 address (e.g. 169.254.21.191).`;
+              setConnectionErrors((prev) => ({ ...prev, [id]: msg }));
+              showToast('error', msg);
+              await refreshCameras();
+              return;
+            }
+          }
+
+          // 2. Test hardware connectivity
+          setStartingStates((prev) => ({ ...prev, [id]: true }));
+          try {
+            await cameraService.start({ camera_id: id, ip_address: cam?.ipAddress });
+            setConnectionErrors((prev) => ({ ...prev, [id]: null }));
+            showToast('success', `${cam?.sourceName || `Camera ${id}`} hardware enabled & ready`);
+            addLog(`Enabled hardware on camera ${id}`, 'info');
+          } catch (err: any) {
+            const msg = err?.message || `Failed to connect to camera ${id}`;
+            setConnectionErrors((prev) => ({ ...prev, [id]: msg }));
+            showToast('error', msg);
+            addLog(`Camera ${id} is unreachable: ${msg}`, 'error');
+          } finally {
+            setStartingStates((prev) => ({ ...prev, [id]: false }));
+            await refreshCameras();
+          }
         }
-        await refreshCameras();
       } catch (err: any) {
         showToast('error', err?.message || 'Failed to toggle camera hardware state');
       }
     },
-    [streamingStates, handleStopStream, showToast, addLog, refreshCameras]
+    [cameras, streamingStates, handleStopStream, showToast, addLog, refreshCameras]
   );
 
   // ─── 9. Recording Handlers ─────────────────────────────────────────
@@ -327,7 +388,6 @@ export default function App() {
     async (updated: CameraConfig) => {
       if (!updated.id) return;
       try {
-        setConnectionErrors((prev) => ({ ...prev, [updated.id!]: null }));
         await cameraService.updateCamera(updated.id, {
           name: updated.sourceName,
           ip_address: updated.ipAddress,
@@ -340,6 +400,38 @@ export default function App() {
         });
         showToast('success', `${updated.sourceName} settings updated`);
         addLog(`Updated camera ${updated.id} parameters in database`, 'info');
+
+        // If camera is enabled, verify connectivity
+        if (updated.is_enabled !== false) {
+          const chosenIp = (updated.ipAddress || '').trim();
+          const isIp = Boolean(chosenIp && chosenIp.includes('.') && !chosenIp.toLowerCase().includes('usb'));
+          if (isIp) {
+            const parts = chosenIp.split('.');
+            const isSyntaxValid =
+              parts.length === 4 &&
+              parts.every((p) => /^\d+$/.test(p) && parseInt(p, 10) >= 0 && parseInt(p, 10) <= 255);
+            if (!isSyntaxValid) {
+              const msg = `Invalid IP address format: "${chosenIp}". Expected a valid IPv4 address (e.g. 169.254.21.191).`;
+              setConnectionErrors((prev) => ({ ...prev, [updated.id!]: msg }));
+              await refreshCameras();
+              return;
+            }
+          }
+
+          setStartingStates((prev) => ({ ...prev, [updated.id!]: true }));
+          try {
+            await cameraService.start({ camera_id: updated.id, ip_address: updated.ipAddress });
+            setConnectionErrors((prev) => ({ ...prev, [updated.id!]: null }));
+          } catch (err: any) {
+            const msg = err?.message || `Failed to connect to camera ${updated.id}`;
+            setConnectionErrors((prev) => ({ ...prev, [updated.id!]: msg }));
+          } finally {
+            setStartingStates((prev) => ({ ...prev, [updated.id!]: false }));
+          }
+        } else {
+          setConnectionErrors((prev) => ({ ...prev, [updated.id!]: null }));
+        }
+
         await refreshCameras();
       } catch (err: any) {
         showToast('error', err?.message || 'Failed to update camera');

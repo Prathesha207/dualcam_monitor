@@ -437,7 +437,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         {/* Left: Stream Control & Record Control */}
         <div className="flex items-center gap-2">
           
-          {/* Stream button: GREEN for start, WARNING AMBER for stop, DISABLED if hardware is off */}
+          {/* Stream button: GREEN for start, WARNING AMBER for stop, DISABLED if hardware is off or unreachable */}
           {isStreaming ? (
             <button
               onClick={() => onStopStream(cameraId)}
@@ -450,9 +450,23 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           ) : (
             <button
               onClick={() => onStartStream(cameraId)}
-              disabled={isStarting}
-              title={isStarting ? 'Connecting...' : connectionError ? 'Retry live stream' : 'Start live stream'}
-              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border border-emerald-500 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:outline-none focus:ring-0"
+              disabled={isStarting || Boolean(connectionError) || !isEnabled}
+              title={
+                isStarting
+                  ? 'Connecting...'
+                  : connectionError
+                  ? 'Camera is unreachable. Click Retry on card or edit IP.'
+                  : !isEnabled
+                  ? 'Camera hardware is powered off. Power on to stream.'
+                  : 'Start live stream'
+              }
+              className={`inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl text-xs font-bold border transition-all shadow-xs focus:outline-none focus-visible:outline-none focus:ring-0 ${
+                isStarting
+                  ? 'bg-emerald-600/70 text-white border-emerald-500 cursor-wait'
+                  : connectionError || !isEnabled
+                  ? 'bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border-color)] opacity-35 cursor-not-allowed'
+                  : 'bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border-emerald-500 cursor-pointer'
+              }`}
             >
               {isStarting ? (
                 <>
@@ -461,7 +475,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 </>
               ) : (
                 <>
-                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <Play className={`w-3.5 h-3.5 fill-current ${connectionError || !isEnabled ? 'text-slate-400' : ''}`} />
                   <span>Start Stream</span>
                 </>
               )}
