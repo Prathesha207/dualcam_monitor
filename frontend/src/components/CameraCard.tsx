@@ -158,13 +158,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
 
   return (
     <div
-      className={`relative flex flex-col h-full w-full rounded-2xl bg-[var(--bg-card)] border transition-all duration-200 overflow-hidden shadow-xs select-none ${
-        isRecording
-          ? 'border-red-500/60 ring-1 ring-red-500/20'
-          : isControlsOpen
-          ? 'border-[var(--accent-pond)] ring-2 ring-[var(--accent-pond)]/20'
-          : 'border-[var(--border-color)]'
-      }`}
+      className="relative flex flex-col h-full w-full rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] transition-all duration-200 overflow-hidden shadow-xs select-none"
     >
       {/* ── 1. Card Top Header ────────────────────────────────────────── */}
       <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 border-b border-[var(--border-color)] bg-[var(--bg-card-subtle)]/60 shrink-0 gap-2">
@@ -354,9 +348,17 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <h4 className="font-bold text-sm sm:text-base text-[var(--text-primary)] mb-1">
               {camera.sourceName || `Camera ${index}`} Powered Off
             </h4>
-            <p className="text-xs text-[var(--text-secondary)] max-w-xs">
-              Hardware connection is released. Click &quot;Start Stream&quot; below to power on and stream.
+            <p className="text-xs text-[var(--text-secondary)] max-w-xs mb-3">
+              Hardware connection is released. Click &quot;Power On Camera&quot; to connect hardware.
             </p>
+            <button
+              type="button"
+              onClick={() => onToggleEnable(cameraId, isEnabled)}
+              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 active:scale-95 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-bold transition-all cursor-pointer shadow-xs"
+            >
+              <Power className="w-3.5 h-3.5 stroke-[2.5]" />
+              <span>Power On Camera</span>
+            </button>
           </div>
         )}
 
