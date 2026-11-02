@@ -348,17 +348,9 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <h4 className="font-bold text-sm sm:text-base text-[var(--text-primary)] mb-1">
               {camera.sourceName || `Camera ${index}`} Powered Off
             </h4>
-            <p className="text-xs text-[var(--text-secondary)] max-w-xs mb-3">
-              Hardware connection is released. Click &quot;Power On Camera&quot; to connect hardware.
+            <p className="text-xs text-[var(--text-secondary)] max-w-xs">
+              Hardware connection is released. Click the power button in header to connect.
             </p>
-            <button
-              type="button"
-              onClick={() => onToggleEnable(cameraId, isEnabled)}
-              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 active:scale-95 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-bold transition-all cursor-pointer shadow-xs"
-            >
-              <Power className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>Power On Camera</span>
-            </button>
           </div>
         )}
 
