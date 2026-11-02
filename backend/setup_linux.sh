@@ -42,6 +42,15 @@ fi
 if [[ -f "$FRONTEND_DIR/package.json" ]]; then
   cd "$FRONTEND_DIR"
   npm install --include=optional
+  npm run build
+  cd "$BACKEND_DIR"
 fi
 
+if [[ -f "$BACKEND_DIR/test_smoke.py" ]]; then
+  echo "Verifying backend camera service smoke test..."
+  python "$BACKEND_DIR/test_smoke.py"
+fi
+
+echo "======================================================="
 echo "Backend camera service setup completed successfully."
+echo "======================================================="

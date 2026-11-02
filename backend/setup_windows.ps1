@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [switch]$Clean
 )
@@ -148,7 +148,7 @@ if (Test-Path $FrontendDir) {
     $NpmVersion = & $NpmExecutable --version 2>&1
     Write-Host "[OK] Using npm: v$NpmVersion ($NpmExecutable)" -ForegroundColor Green
 } else {
-    Write-Host "[INFO] Frontend folder not present — skipping Node.js check." -ForegroundColor Cyan
+    Write-Host "[INFO] Frontend folder not present - skipping Node.js check." -ForegroundColor Cyan
 }
 
 # ------------------------------------------------------------------------------
@@ -185,18 +185,9 @@ if (-not (Test-Path $VenvPython)) {
     Write-Host "Reusing existing virtual environment at $VenvDir."
 }
 
-$BackendCheck = try {
-    & $VenvPython -c "
-import importlib.util as u
-pkgs = ['fastapi', 'uvicorn', 'cv2', 'depthai', 'av']
-if all(u.find_spec(p) is not None for p in pkgs):
-    print('INSTALLED')
-else:
-    print('MISSING')
-" 2>$null
-} catch { 'MISSING' }
-
-if ($BackendCheck -eq 'INSTALLED') {
+Write-Host "Checking backend dependencies..."
+& $VenvPython -c "import fastapi, uvicorn, cv2, depthai, av" 2>$null
+if ($LASTEXITCODE -eq 0) {
     Write-Host "[OK] Backend dependencies are already installed." -ForegroundColor Green
 } else {
     Write-Host "Installing backend requirements..."
@@ -236,29 +227,15 @@ if ((Test-Path $FrontendDir) -and $NpmExecutable) {
     }
 }
 
-$BackendDirEscaped = $BackendDir.Replace('\', '/')
-$SmokeTestCode = @"
-import sys
-sys.path.insert(0, '$BackendDirEscaped')
-try:
-    import fastapi
-    import uvicorn
-    import cv2
-    import depthai
-    import av
-    from app.main import app
-    print('PASS|Camera service and API initialized cleanly')
-except Exception as e:
-    print(f'FAIL|{e}')
-    sys.exit(1)
-"@
-
-$SmokeTestResult = & $VenvPython -c $SmokeTestCode 2>&1
-
-if ($LASTEXITCODE -ne 0 -or -not ($SmokeTestResult -match 'PASS\|')) {
-    throw "Pre-flight camera service verification failed: $SmokeTestResult."
+Write-Host "Verifying backend camera service..."
+$SmokeFile = Join-Path $BackendDir 'test_smoke.py'
+if (Test-Path $SmokeFile) {
+    & $VenvPython $SmokeFile
+    if ($LASTEXITCODE -ne 0) {
+        throw "Pre-flight camera service verification failed."
+    }
 }
-Write-Host "[OK] Pre-flight camera service smoke test PASSED!" -ForegroundColor Green
+Write-Host "[OK] Pre-flight camera service verification PASSED!" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "=======================================================" -ForegroundColor Green

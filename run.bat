@@ -107,8 +107,8 @@ echo.
 echo =======================================================
 echo [SUCCESS] Development servers are starting up!
 echo.
-echo   • Frontend Application : http://localhost:5173
-echo   • Backend Health Check : http://localhost:8000/health
-echo   • API Documentation    : http://localhost:8000/docs
+echo   * Frontend Application : http://localhost:5173
+echo   * Backend Health Check : http://localhost:8000/health
+echo   * API Documentation    : http://localhost:8000/docs
 echo =======================================================
 echo.
