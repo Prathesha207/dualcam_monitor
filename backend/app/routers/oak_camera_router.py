@@ -138,9 +138,11 @@ async def _serve_mjpeg(request: Request, camera_id: Optional[int] = None, db: Se
                     cam = db.query(Camera).filter(Camera.id == camera_id).first()
                 if not cam:
                     cam = camera_service.get_camera_config(db)
-                if cam:
+                if cam and cam.is_enabled is not False:
                     logger.info(f"[STREAM] Auto-starting camera ID {cam.id} ({cam.ip_address}) for stream")
                     await inst.start(cam)
+                elif cam and cam.is_enabled is False:
+                    logger.info(f"[STREAM] Camera ID {cam.id} is disabled by user — skipping auto-start")
             except Exception as e:
                 logger.warning(f"[STREAM] Auto-start camera failed: {e}")
 

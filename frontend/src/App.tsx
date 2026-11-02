@@ -402,13 +402,11 @@ export default function App() {
     );
   }
 
-  // Only enabled cameras should occupy main canvas viewports (unless expanded specifically)
-  const enabledCameras = cameras.filter((c) => c.is_enabled !== false);
+  // Stable dual viewports: All configured cameras (up to 2) stay in their permanent slots
+  // Disabling hardware turns off the feed in that slot without causing viewports to jump or vanish
   const displayCameras = expandedCameraId !== null
     ? cameras.filter((c) => c.id === expandedCameraId)
-    : enabledCameras.length > 0
-    ? enabledCameras.slice(0, 2)
-    : cameras.slice(0, 1);
+    : cameras.slice(0, 2);
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[var(--bg-page)] text-[var(--text-primary)] select-none">

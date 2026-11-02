@@ -102,20 +102,47 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       const devices = await cameraService.getAvailableDevices().catch(() => []);
       const list: HwDevice[] = Array.isArray(devices) ? devices : [];
       setHwDevices(list);
-      const usb = list.find((d) => d.is_usb);
-      if (usb) {
-        setDetectedUsb(usb);
+
+      // Check which devices are already assigned to existing cameras
+      const assignedIps = new Set(
+        savedCameras
+          .map((c) => (c.ip_address || '').trim().toLowerCase())
+          .filter(Boolean)
+      );
+
+      const unclaimed = list.filter(
+        (d) =>
+          !assignedIps.has((d.ip_or_id || '').toLowerCase()) &&
+          !assignedIps.has((d.mxid || '').toLowerCase())
+      );
+
+      const availableUsb = unclaimed.find((d) => d.is_usb) || list.find((d) => d.is_usb);
+      const availableNet = unclaimed.find((d) => !d.is_usb) || unclaimed[0];
+
+      if (availableUsb && (newType === 'usb' || !availableNet)) {
+        setDetectedUsb(availableUsb);
         setNewType('usb');
-        setNewName((prev) => (prev.trim() ? prev : (usb.name || 'OAK USB Camera')));
-        return usb;
-      } else if (list.length > 0) {
-        // PoE / IP device detected (e.g. 169.254.21.191)
-        const netDev = list[0];
-        setDetectedUsb(netDev);
+        setNewName((prev) => (prev.trim() ? prev : (availableUsb.name || 'OAK USB Camera')));
+        return availableUsb;
+      } else if (availableNet) {
+        setDetectedUsb(availableNet);
         setNewType('ip');
-        setNewIp(netDev.ip_or_id || netDev.name || '');
-        setNewName((prev) => (prev.trim() ? prev : (netDev.name || 'Cam 01')));
-        return netDev;
+        setNewIp(availableNet.ip_or_id || availableNet.name || '');
+        setNewName((prev) => (prev.trim() ? prev : (availableNet.name || `Cam ${savedCameras.length + 1}`)));
+        return availableNet;
+      } else if (list.length > 0) {
+        // Every connected physical device is already assigned
+        const first = list[0];
+        setDetectedUsb(first);
+        const owner = savedCameras.find(
+          (c) =>
+            (c.ip_address || '').toLowerCase() === (first.ip_or_id || '').toLowerCase() ||
+            (c.ip_address || '').toLowerCase() === (first.mxid || '').toLowerCase()
+        );
+        setErrorMessage(
+          `Hardware (${first.name || first.ip_or_id}) is already assigned to "${owner?.name || 'Camera 1'}". Connect a second camera or enter a distinct IP.`
+        );
+        return first;
       } else {
         setDetectedUsb(null);
         return null;
@@ -123,7 +150,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
     } finally {
       setIsScanning(false);
     }
-  }, []);
+  }, [newType, savedCameras]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -249,6 +276,20 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
 
     if (newType === 'ip' && !newIp.trim()) {
       setErrorMessage('Please enter a valid IP address or hostname');
+      return;
+    }
+
+    // Prevent duplicate hardware assignment across dual cameras
+    const duplicate = savedCameras.find(
+      (c) =>
+        c.ip_address &&
+        ipAddress &&
+        c.ip_address.trim().toLowerCase() === ipAddress.trim().toLowerCase()
+    );
+    if (duplicate) {
+      setErrorMessage(
+        `Hardware (${ipAddress}) is already assigned to "${duplicate.name}". Dual cameras must have different hardware devices or IP addresses.`
+      );
       return;
     }
 
