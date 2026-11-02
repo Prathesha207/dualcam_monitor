@@ -123,7 +123,9 @@ export const CameraCard: React.FC<CameraCardProps> = ({
   return (
     <div
       className={`relative flex flex-col h-full w-full rounded-2xl bg-[var(--bg-card)] border transition-all duration-200 overflow-hidden shadow-xs select-none ${
-        isControlsOpen
+        isRecording
+          ? 'border-red-500/60 ring-1 ring-red-500/20'
+          : isControlsOpen
           ? 'border-[var(--accent-pond)] ring-2 ring-[var(--accent-pond)]/20'
           : 'border-[var(--border-color)]'
       }`}
@@ -284,12 +286,12 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         {/* Left: Stream Control & Record Control & Snapshot */}
         <div className="flex items-center gap-2">
           
-          {/* Stream button: GREEN for start, RED for stop */}
+          {/* Stream button: GREEN for start, WARNING AMBER for stop */}
           {isStreaming ? (
             <button
               onClick={() => onStopStream(cameraId)}
               title="Stop live stream"
-              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white border border-rose-500 text-xs font-bold transition-all cursor-pointer shadow-xs"
+              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-amber-600 hover:bg-amber-700 active:scale-95 text-white border border-amber-500 text-xs font-bold transition-all cursor-pointer shadow-xs focus:outline-none focus-visible:outline-none focus:ring-0"
             >
               <Square className="w-3.5 h-3.5 fill-current" />
               <span>Stop Stream</span>
@@ -299,7 +301,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               onClick={() => onStartStream(cameraId)}
               disabled={!isEnabled || isStarting}
               title={!isEnabled ? 'Enable camera hardware first' : 'Start live stream'}
-              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border border-emerald-500 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-40 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border border-emerald-500 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:outline-none focus:ring-0"
             >
               {isStarting ? (
                 <>
@@ -315,7 +317,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             </button>
           )}
 
-          {/* Record button: moved next to Stream button with matching standard button size */}
+          {/* Record button: NO blue outer colour on hover/focus/active; pure red state */}
           <button
             onClick={() => onToggleRecord(cameraId)}
             disabled={!isStreaming || !isEnabled}
@@ -328,10 +330,10 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 ? 'Stop recording'
                 : 'Start recording'
             }
-            className={`inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-xs disabled:opacity-35 disabled:cursor-not-allowed ${
+            className={`inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-xs disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none focus-visible:outline-none focus:ring-0 ${
               isRecording
                 ? 'bg-red-600 hover:bg-red-700 active:scale-95 text-white border-red-500 shadow-xs shadow-red-500/25 animate-pulse'
-                : 'bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)] hover:bg-[var(--bg-card-subtle)] hover:border-[var(--accent-pond)] active:scale-95'
+                : 'bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)] hover:bg-red-500/5 hover:border-red-400/60 active:scale-95'
             }`}
           >
             <span

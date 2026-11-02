@@ -1276,7 +1276,7 @@ class OakCameraService:
         resolved_path = root_path or self._resolve_recording_path()
         settings_snap = camera_settings or self._recording_settings_snapshot()
 
-        rec = _start(
+        rec_path = _start(
             session_id=session_id,
             width=width,
             height=height,
@@ -1285,9 +1285,10 @@ class OakCameraService:
             recording_format=resolved_format,
             camera_settings=settings_snap,
         )
-        self._active_recording = rec
-        logger.info(f"[RECORD] Active recording initialized: {rec.video_path} (format={resolved_format})")
-        return rec.video_path
+        from app.services.recording_service import active_recordings
+        self._active_recording = active_recordings.get(session_id)
+        logger.info(f"[RECORD] Active recording initialized: {rec_path} (format={resolved_format})")
+        return rec_path
 
     def _recording_settings_snapshot(self) -> dict:
         return {
