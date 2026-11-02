@@ -1,6 +1,8 @@
-import React, { useRef, useState, useEffect, useMemo } from 'react';
+import React, { useRef, useState, useEffect, useMemo, useCallback } from 'react';
 import type { CameraConfig } from '../types';
 import { cameraService } from './service/cameraService';
+import { useCanvasZoom } from '../hooks/useCanvasZoom';
+import { ZoomControls } from './canvas/ZoomControls';
 import {
   Play,
   Square,
@@ -72,6 +74,36 @@ export const CameraCard: React.FC<CameraCardProps> = ({
     camera.ipAddress.includes('.') &&
     !camera.ipAddress.toLowerCase().includes('usb')
   );
+
+  // Canvas Zoom & Pan Hook (active when live stream is running)
+  const {
+    zoom,
+    zoomIn,
+    zoomOut,
+    resetZoom,
+    setZoomLevel,
+    viewportRef,
+    transformStyle,
+    handleMouseDown,
+    handleDoubleClick,
+    cursorStyle,
+  } = useCanvasZoom(isStreaming);
+
+  // Synchronize containerRef and viewportRef to canvas DOM node
+  const setCanvasRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      containerRef.current = node;
+      (viewportRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    },
+    [viewportRef]
+  );
+
+  // Reset zoom to 1x when stream stops
+  useEffect(() => {
+    if (!isStreaming) {
+      resetZoom();
+    }
+  }, [isStreaming, resetZoom]);
 
   // Resize observer to maintain proper video aspect ratio without distortion
   useEffect(() => {
@@ -207,13 +239,32 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </div>
         </div>
 
-        {/* Right: Hardware Power Toggle - Only show when stream is active */}
-        {isStreaming && (
+        {/* Right: Hardware Power Toggle - Show on Standby and Live Stream, Hide when Connecting or Unreachable */}
+        {!isStarting && !connectionError && (
           <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => onToggleEnable(cameraId, isEnabled)}
-              title="Camera stream is active (Click to power down)"
-              className="flex items-center justify-center w-8 h-8 rounded-xl border transition-all cursor-pointer shadow-xs active:scale-95 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+              title={
+                isStreaming
+                  ? 'Camera stream is active (Click to power down)'
+                  : isEnabled
+                    ? 'Camera in Standby (Click to power off)'
+                    : 'Camera powered off (Click to power on)'
+              }
+              aria-label={
+                isStreaming
+                  ? 'Disable camera'
+                  : isEnabled
+                    ? 'Power off camera'
+                    : 'Power on camera'
+              }
+              className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all cursor-pointer shadow-xs active:scale-95 ${
+                isStreaming
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                  : isEnabled
+                    ? 'bg-[var(--btn-secondary-bg)] hover:bg-amber-500/15 text-[var(--text-secondary)] hover:text-amber-500 border-[var(--border-color)] hover:border-amber-500/30'
+                    : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-emerald-500/10 hover:text-emerald-500 hover:border-emerald-500/30'
+              }`}
             >
               <Power className="w-3.5 h-3.5 stroke-[2.5]" />
             </button>
@@ -223,7 +274,10 @@ export const CameraCard: React.FC<CameraCardProps> = ({
 
       {/* ── 2. Card Center Video Canvas ───────────────────────────────── */}
       <div
-        ref={containerRef}
+        ref={setCanvasRef}
+        onMouseDown={isStreaming ? handleMouseDown : undefined}
+        onDoubleClick={isStreaming ? handleDoubleClick : undefined}
+        style={{ cursor: isStreaming ? cursorStyle : 'default' }}
         className="relative flex-1 min-h-[240px] sm:min-h-[300px] bg-black flex items-center justify-center overflow-hidden"
       >
         {/* Flash effect on snapshot */}
@@ -321,9 +375,12 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </div>
         )}
 
-        {/* State D: Live Video Feed (100% clean, no repeated text overlays) */}
+        {/* State D: Live Video Feed (with smooth zoom and pan transform) */}
         {isEnabled && isStreaming && (
-          <div className="relative shrink-0 flex items-center justify-center" style={fittedRect}>
+          <div
+            className="relative shrink-0 flex items-center justify-center"
+            style={{ ...fittedRect, ...transformStyle }}
+          >
             <img
               crossOrigin="anonymous"
               src={streamUrl}
@@ -353,6 +410,23 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 <span className="text-xs text-white/60 mt-1">Re-establishing high-speed video link</span>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Floating Canvas Zoom Controls (Bottom Right of Video) */}
+        {isEnabled && isStreaming && !streamError && (
+          <div
+            className="absolute right-3 bottom-3 z-30"
+            onMouseDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <ZoomControls
+              zoom={zoom}
+              onZoomIn={zoomIn}
+              onZoomOut={zoomOut}
+              onResetZoom={resetZoom}
+              onSetZoom={setZoomLevel}
+            />
           </div>
         )}
       </div>
