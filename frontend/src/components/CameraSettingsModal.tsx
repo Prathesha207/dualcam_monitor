@@ -192,6 +192,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       setActiveCameraId(row.id);
       setErrorMessage(null);
       setErrorCameraId(null);
+      onClose();
     } catch (err: any) {
       setActiveCameraId(null);
       setErrorCameraId(row.id);
@@ -275,12 +276,12 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
         connected: true,
       };
       setLocalConfig(updated);
-      await onReconnectRef.current(updated);
       setActiveCameraId(saved?.id ?? null);
-      await refreshAll();
+      await onReconnectRef.current(updated);
       setNewName('');
       setNewIp('');
       setErrorMessage(null);
+      onClose();
     } catch (err: any) {
       setActiveCameraId(null);
       setErrorMessage(err?.message || 'Failed to connect to camera device');
@@ -378,7 +379,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      maxWidth="lg"
+      maxWidth="2xl"
       icon={<Camera className="w-4 h-4 text-[var(--accent-pond)]" />}
       title="Camera & Stream Settings"
       description="Manage connected cameras and video pipeline"
@@ -691,16 +692,39 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 </div>
               ) : (
                 <div>
-                  <label className="block text-[10px] font-bold text-[var(--text-secondary)] mb-0.5">
-                    IP Address / Hostname
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g., 192.168.1.100"
-                    value={newIp}
-                    onChange={(e) => setNewIp(e.target.value)}
-                    className="w-full px-2.5 py-1 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-hidden focus:border-[var(--accent-pond)] focus:bg-[var(--bg-card)] transition-all"
-                  />
+                  <div className="flex items-center justify-between mb-0.5">
+                    <label className="text-[10px] font-bold text-[var(--text-secondary)]">
+                      IP Address / Hostname
+                    </label>
+                    <button
+                      type="button"
+                      disabled={isScanning}
+                      onClick={scanUsbDevices}
+                      className="text-[10px] font-semibold text-[var(--accent-pond)] hover:underline flex items-center gap-1 cursor-pointer"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${isScanning ? 'animate-spin' : ''}`} />
+                      <span>Scan Network</span>
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="e.g., 169.254.21.191"
+                      value={newIp}
+                      onChange={(e) => setNewIp(e.target.value)}
+                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-pond)] focus:bg-[var(--bg-card)] transition-all"
+                    />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      disabled={isScanning}
+                      onClick={scanUsbDevices}
+                      className="h-8 px-3 text-xs font-bold shrink-0 cursor-pointer"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin' : ''}`} />
+                      <span>Scan</span>
+                    </Button>
+                  </div>
                 </div>
               )}
 

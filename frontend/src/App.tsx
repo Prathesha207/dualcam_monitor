@@ -537,8 +537,13 @@ export default function App() {
           await refreshCameras();
           setAddCameraOpen(false);
         }}
-        onReconnect={async () => {
+        onReconnect={async (updatedCamera?: CameraConfig) => {
           await refreshCameras();
+          setAddCameraOpen(false);
+          const cid = updatedCamera?.id || 1;
+          setTimeout(() => {
+            handleStartStream(cid).catch(() => {});
+          }, 300);
         }}
       />
 

@@ -225,7 +225,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      maxWidth="lg"
+      maxWidth="2xl"
       icon={<Camera className="w-4 h-4 text-[var(--accent-pond)]" />}
       title="Camera & Stream Settings"
       description={`Configure parameters for ${camera.sourceName || camera.ipAddress || 'this camera'}`}
@@ -405,32 +405,32 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
                   </span>
                 </div>
 
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-2 w-full">
                   <input
                     type="text"
                     value={storagePath}
                     onChange={(e) => setStoragePath(e.target.value)}
                     placeholder={defaultDesktopPath || 'C:\\Users\\...\\Desktop'}
-                    className="flex-1 text-xs font-mono px-3 py-1.5 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-pond)]"
+                    className="flex-1 min-w-0 text-xs font-mono px-3 py-2 rounded-xl bg-[var(--bg-card)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-pond)] focus:ring-1 focus:ring-[var(--accent-pond)]"
                   />
-                  <Button
-                    variant="secondary"
-                    size="sm"
+                  <button
+                    type="button"
                     onClick={handleBrowseFolder}
                     disabled={isBrowsingFolder}
-                    className="h-8 px-2.5 text-xs font-bold shrink-0 cursor-pointer"
+                    title="Browse PC folders"
+                    className="inline-flex items-center justify-center gap-1.5 h-9 px-3.5 rounded-xl bg-[var(--bg-card)] hover:bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] hover:border-[var(--accent-pond)] text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95 disabled:opacity-50"
                   >
                     {isBrowsingFolder ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FolderOpen className="w-3.5 h-3.5" />}
                     <span>Browse...</span>
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  </button>
+                  <button
+                    type="button"
                     onClick={handleResetDesktop}
-                    className="h-8 px-2 text-xs font-medium shrink-0 cursor-pointer"
+                    title="Reset to default Desktop folder"
+                    className="inline-flex items-center justify-center h-9 px-3 rounded-xl bg-[var(--bg-card)] hover:bg-[var(--bg-card-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-color)] text-xs font-medium transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95"
                   >
                     Desktop
-                  </Button>
+                  </button>
                 </div>
                 <p className="text-[10px] text-[var(--text-muted)]">
                   Camera recordings and snapshots save here automatically.
@@ -441,7 +441,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
           </div>
 
           {/* 2. Camera Connection & Hardware Settings */}
-          <div className="p-3 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-3">
+          <div className="p-3.5 rounded-2xl bg-[var(--bg-card)] border border-[var(--border-color)] space-y-3">
             <div className="flex items-center justify-between pb-1.5 border-b border-[var(--border-color)]">
               <div className="flex items-center gap-1.5">
                 <div className="w-5 h-5 rounded-md bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] flex items-center justify-center border border-[var(--border-color)]">
@@ -490,7 +490,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g., Dock Inspection OAK-D"
-                  className="w-full px-3 py-1.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-pond)]"
+                  className="w-full h-9 px-3 text-xs rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-pond)]"
                 />
               </div>
 
@@ -498,11 +498,11 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
                 <label className="block text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-1">
                   Image Control Mode
                 </label>
-                <div className="grid grid-cols-2 gap-1 p-0.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
+                <div className="grid grid-cols-2 gap-1 p-0.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] h-9 items-center">
                   <button
                     type="button"
                     onClick={() => setControlMode('auto')}
-                    className={`py-1 text-center rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    className={`h-7 text-center rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       controlMode === 'auto'
                         ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -513,7 +513,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setControlMode('manual')}
-                    className={`py-1 text-center rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    className={`h-7 text-center rounded-lg text-xs font-bold transition-all cursor-pointer ${
                       controlMode === 'manual'
                         ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                         : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -525,53 +525,67 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
               </div>
             </div>
 
-            {/* Hardware Address or Scan Box */}
-            {connectionType === 'usb' ? (
-              <div className="p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] flex items-center justify-between gap-2.5">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] shrink-0">
-                    <Usb className="w-4 h-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-bold text-[var(--text-primary)] truncate">
-                        {availableDevices.find((d) => d.is_usb)?.name || camera.sourceName || 'OAK USB Device'}
-                      </span>
-                      <span className="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-                        READY
-                      </span>
-                    </div>
-                    <span className="text-[10px] text-[var(--text-muted)] font-mono block truncate">
-                      {camera.ipAddress || 'USB Auto-detected'}
-                    </span>
-                  </div>
-                </div>
+            {/* Hardware Address & Scan Row on EXACT SAME LINE */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                  {connectionType === 'usb' ? 'Connected Hardware Device' : 'Device IP Address / Hostname'}
+                </label>
+                {availableDevices.length > 0 && (
+                  <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                    {availableDevices.length} device{availableDevices.length > 1 ? 's' : ''} detected
+                  </span>
+                )}
+              </div>
 
-                <Button
-                  variant="secondary"
-                  size="sm"
+              <div className="flex items-center gap-2 w-full">
+                {connectionType === 'usb' ? (
+                  <div className="relative flex-1 min-w-0">
+                    <select
+                      value={availableDevices.some((d) => d.ip_or_id === (ipAddress || camera.ipAddress)) ? (ipAddress || camera.ipAddress) : ''}
+                      onChange={(e) => {
+                        const chosen = availableDevices.find((d) => d.ip_or_id === e.target.value);
+                        if (chosen) {
+                          setIpAddress(chosen.ip_or_id);
+                          if (!name.trim()) setName(chosen.name);
+                        }
+                      }}
+                      className="w-full h-9 text-xs px-3 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-pond)] truncate"
+                    >
+                      <option value="">
+                        {availableDevices.length > 0
+                          ? `Select detected device (${availableDevices[0].name})...`
+                          : (camera.ipAddress ? `Connected: ${camera.ipAddress}` : 'Auto-detect USB Device')}
+                      </option>
+                      {availableDevices.map((dev, i) => (
+                        <option key={dev.mxid || i} value={dev.ip_or_id}>
+                          {dev.name} ({dev.protocol})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    value={ipAddress}
+                    onChange={(e) => setIpAddress(e.target.value)}
+                    placeholder="e.g. 169.254.21.191"
+                    className="flex-1 min-w-0 h-9 px-3 text-xs font-mono rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-pond)]"
+                  />
+                )}
+
+                <button
+                  type="button"
                   onClick={handleScanDevices}
                   disabled={isScanning}
-                  className="h-7 px-2.5 text-xs font-bold shrink-0 cursor-pointer"
+                  title="Scan for connected hardware cameras"
+                  className="inline-flex items-center justify-center gap-1.5 h-9 px-3.5 rounded-xl bg-[var(--bg-card-subtle)] hover:bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] hover:border-[var(--accent-pond)] text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95 disabled:opacity-50"
                 >
-                  <RefreshCw className={`w-3 h-3 ${isScanning ? 'animate-spin text-[var(--accent-pond)]' : ''}`} />
+                  <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin' : ''}`} />
                   <span>Scan</span>
-                </Button>
+                </button>
               </div>
-            ) : (
-              <div>
-                <label className="block text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-1">
-                  IP Address / RTSP Hostname
-                </label>
-                <input
-                  type="text"
-                  value={ipAddress}
-                  onChange={(e) => setIpAddress(e.target.value)}
-                  placeholder="e.g. 192.168.1.100"
-                  className="w-full px-3 py-1.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-pond)]"
-                />
-              </div>
-            )}
+            </div>
 
             {/* Hardware Power Toggle */}
             <div className="pt-2 border-t border-[var(--border-color)]/60 flex items-center justify-between">

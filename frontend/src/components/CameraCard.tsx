@@ -267,15 +267,6 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               }}
             />
 
-            {/* Recording Active HUD tag (Only when active recording) */}
-            {isRecording && (
-              <div className="absolute top-3 right-3 flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/80 backdrop-blur-md text-white text-xs font-mono font-bold border border-red-500/50 shadow-lg shadow-red-900/40 pointer-events-none animate-pulse">
-                <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-                <span className="text-red-200">RECORDING</span>
-                <span className="text-white font-bold">[{formatDuration(recordingDuration)}]</span>
-              </div>
-            )}
-
             {/* Error Reconnect Overlay */}
             {streamError && (
               <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-white p-4">
