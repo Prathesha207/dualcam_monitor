@@ -476,7 +476,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             </button>
           )}
 
-          {/* Record button: NO blue outer colour on hover/focus/active; pure red state */}
+          {/* Record button: Solid red button (never white) */}
           <button
             onClick={() => onToggleRecord(cameraId)}
             disabled={!isStreaming || !isEnabled}
@@ -489,18 +489,20 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 ? 'Stop recording'
                 : 'Start recording'
             }
-            className={`inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-xs disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none focus-visible:outline-none focus:ring-0 ${
-              isRecording
-                ? 'bg-red-600 hover:bg-red-700 active:scale-95 text-white border-red-500 shadow-xs shadow-red-500/25 animate-pulse'
-                : 'bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)] hover:bg-red-500/5 hover:border-red-400/60 active:scale-95'
+            className={`inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl text-xs font-bold border transition-all shadow-xs focus:outline-none focus-visible:outline-none focus:ring-0 ${
+              !isStreaming || !isEnabled
+                ? 'bg-red-600 text-white border-red-500 opacity-40 cursor-not-allowed'
+                : isRecording
+                ? 'bg-red-600 hover:bg-red-700 active:scale-95 text-white border-red-500 shadow-xs shadow-red-500/25 animate-pulse cursor-pointer'
+                : 'bg-red-600 hover:bg-red-700 active:scale-95 text-white border-red-500 cursor-pointer'
             }`}
           >
             <span
-              className={`w-2 h-2 rounded-full shrink-0 ${
-                isRecording ? 'bg-white animate-ping' : 'bg-red-500'
+              className={`w-2 h-2 rounded-full shrink-0 bg-white ${
+                isRecording ? 'animate-ping' : ''
               }`}
             />
-            <span className="font-mono">
+            <span className={isRecording ? 'font-mono' : ''}>
               {isRecording ? `REC ${formatDuration(recordingDuration)}` : 'Record'}
             </span>
           </button>
