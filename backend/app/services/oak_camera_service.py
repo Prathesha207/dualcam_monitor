@@ -1351,20 +1351,6 @@ class OakCameraService:
                 self._active_camera_id = getattr(config, "id", None)
                 if not self.is_connected:
                     if not await self.connect(config.ip_address):
-                        # Auto-disable unreachable camera in DB so its state matches reality
-                        if getattr(config, "id", None):
-                            try:
-                                from app.core.database import SessionLocal
-                                from app.models.camera_model import Camera
-                                with SessionLocal() as db_session:
-                                    cam_row = db_session.query(Camera).filter(Camera.id == config.id).first()
-                                    if cam_row and cam_row.is_enabled:
-                                        cam_row.is_enabled = False
-                                        db_session.commit()
-                                        logger.info(f"[START] Auto-disabled unreachable camera ID {config.id} in database")
-                            except Exception as db_err:
-                                logger.warning(f"[START] Could not auto-disable camera {config.id}: {db_err}")
-
                         if "already used" in (self._last_connection_error or "").lower() or "in use" in (self._last_connection_error or "").lower():
                             return {
                                 "status": "error",

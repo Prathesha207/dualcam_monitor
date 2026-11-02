@@ -202,28 +202,18 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </div>
         </div>
 
-        {/* Right: Hardware Power Toggle (Kept at top header as requested) */}
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={() => onToggleEnable(cameraId, isEnabled)}
-            title={
-              connectionError
-                ? 'Camera is unreachable (Click to retry connection)'
-                : isEnabled
-                ? 'Hardware is ON (Click to power down)'
-                : 'Hardware is OFF (Click to power up)'
-            }
-            className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all cursor-pointer shadow-xs active:scale-95 ${
-              connectionError
-                ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
-                : isEnabled
-                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
-                : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
-            }`}
-          >
-            <Power className="w-3.5 h-3.5 stroke-[2.5]" />
-          </button>
-        </div>
+        {/* Right: Hardware Power Toggle - Only show when stream is active */}
+        {isStreaming && (
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => onToggleEnable(cameraId, isEnabled)}
+              title="Camera stream is active (Click to power down)"
+              className="flex items-center justify-center w-8 h-8 rounded-xl border transition-all cursor-pointer shadow-xs active:scale-95 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20"
+            >
+              <Power className="w-3.5 h-3.5 stroke-[2.5]" />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── 2. Card Center Video Canvas ───────────────────────────────── */}
@@ -236,32 +226,32 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           <div className="absolute inset-0 z-30 bg-white/40 pointer-events-none animate-out fade-out duration-200" />
         )}
 
-        {/* State A: Connection Error / Unreachable (Top priority over normal powered off or standby) */}
-        {connectionError && !isStreaming ? (
+        {/* State A: Connection Error / Unreachable (Highest priority when not streaming) */}
+        {!isStreaming && connectionError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
-            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 mb-3 shadow-xs">
-              <AlertTriangle className="w-6 h-6 stroke-[1.75]" />
+            <div className="w-14 h-14 rounded-2xl bg-rose-500/10 border border-rose-500/25 flex items-center justify-center text-rose-500 mb-3 shadow-xs">
+              <AlertTriangle className="w-7 h-7 stroke-[1.75]" />
             </div>
             <h4 className="font-bold text-sm sm:text-base text-rose-600 dark:text-rose-400 mb-1">
               Camera Unreachable
             </h4>
-            <p className="text-xs text-[var(--text-secondary)] max-w-sm mb-4 leading-relaxed">
+            <p className="text-xs text-[var(--text-secondary)] max-w-sm mb-4 leading-relaxed font-mono px-3 py-1.5 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
               {connectionError}
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <button
                 type="button"
                 onClick={() => onOpenEdit(camera)}
-                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl bg-[var(--bg-card-subtle)] hover:bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] hover:border-[var(--accent-pond)] text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+                className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-[var(--bg-card-subtle)] hover:bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] hover:border-[var(--accent-pond)] text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
               >
                 <Settings2 className="w-3.5 h-3.5" />
-                <span>Edit Camera IP</span>
+                <span>⚙ Edit Camera IP</span>
               </button>
               <button
                 type="button"
                 onClick={() => onStartStream(cameraId)}
                 disabled={isStarting}
-                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white border border-rose-500 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white border border-rose-500 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-50"
               >
                 {isStarting ? (
                   <>
@@ -271,14 +261,16 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 ) : (
                   <>
                     <RefreshCw className="w-3.5 h-3.5" />
-                    <span>Retry</span>
+                    <span>⟳ Retry</span>
                   </>
                 )}
               </button>
             </div>
           </div>
-        ) : !isEnabled ? (
-          /* State B: Hardware Disabled by User */
+        )}
+
+        {/* State B: Hardware Disabled (No connection error) */}
+        {!isStreaming && !connectionError && !isEnabled && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
             <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 mb-3 shadow-xs">
               <Power className="w-6 h-6 stroke-[2]" />
@@ -287,11 +279,13 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               {camera.sourceName || `Camera ${index}`} Powered Off
             </h4>
             <p className="text-xs text-[var(--text-secondary)] max-w-xs">
-              Hardware connection is released. Use the power button at top-right to power on.
+              Hardware connection is released. Click &quot;Start Stream&quot; below to power on and stream.
             </p>
           </div>
-        ) : !isStreaming ? (
-          /* State C: Hardware Enabled, Stream Stopped & Ready */
+        )}
+
+        {/* State C: Hardware Enabled, Stream Stopped & Ready */}
+        {!isStreaming && !connectionError && isEnabled && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
             <div className="w-12 h-12 rounded-2xl bg-[var(--accent-pond-subtle)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] mb-3 shadow-xs">
               <Radio className="w-6 h-6 stroke-[1.75]" />
@@ -303,9 +297,9 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               Stream is currently stopped. Click &quot;Start Stream&quot; below to begin live video.
             </p>
           </div>
-        ) : null}
+        )}
 
-        {/* State C: Live Video Feed (100% clean, no repeated text overlays) */}
+        {/* State D: Live Video Feed (100% clean, no repeated text overlays) */}
         {isEnabled && isStreaming && (
           <div className="relative shrink-0 flex items-center justify-center" style={fittedRect}>
             <img
@@ -360,9 +354,9 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           ) : (
             <button
               onClick={() => onStartStream(cameraId)}
-              disabled={!isEnabled || isStarting}
-              title={!isEnabled ? 'Camera hardware is disabled (enable via power button at top-right)' : 'Start live stream'}
-              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border border-emerald-500 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none focus-visible:outline-none focus:ring-0"
+              disabled={isStarting}
+              title={isStarting ? 'Connecting...' : connectionError ? 'Retry live stream' : 'Start live stream'}
+              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border border-emerald-500 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:outline-none focus:ring-0"
             >
               {isStarting ? (
                 <>
