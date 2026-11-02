@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -262,6 +263,15 @@ class OakCameraService:
         """Resolve a database value to a current USB or network DeviceInfo."""
         value = str(identifier or "").strip()
         excludes = exclude_mxids or set()
+
+        # Direct IP fast-path: If an explicit IPv4 address is provided (e.g., 169.254.21.191),
+        # directly construct dai.DeviceInfo without waiting for expensive UDP broadcast enumeration.
+        if value and re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", value) and value not in {"127.0.0.1", "0.0.0.0"}:
+            try:
+                return dai.DeviceInfo(value)
+            except Exception as e:
+                logger.debug(f"[DEVICE] Direct DeviceInfo creation failed, falling back to full scan: {e}")
+
         with _depthai_device_enum_lock:
             devices = dai.Device.getAllAvailableDevices()
             if not devices:

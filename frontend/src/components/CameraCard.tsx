@@ -316,6 +316,16 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             </button>
           )}
 
+          {/* Quick Snapshot button (Placed on left of Record) */}
+          <button
+            onClick={handleSnapshotClick}
+            disabled={!isStreaming || !isEnabled}
+            title={!isStreaming ? 'Start stream first to take snapshot' : 'Take instant high-resolution snapshot'}
+            className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all cursor-pointer active:scale-95 shadow-xs disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none"
+          >
+            <Camera className="w-3.5 h-3.5" />
+          </button>
+
           {/* Record button: NO blue outer colour on hover/focus/active; pure red state */}
           <button
             onClick={() => onToggleRecord(cameraId)}
@@ -344,17 +354,6 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               {isRecording ? `REC ${formatDuration(recordingDuration)}` : 'Record'}
             </span>
           </button>
-
-          {/* Quick Snapshot button */}
-          {isStreaming && (
-            <button
-              onClick={handleSnapshotClick}
-              title="Take instant high-resolution snapshot"
-              className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all cursor-pointer active:scale-95 shadow-xs"
-            >
-              <Camera className="w-3.5 h-3.5" />
-            </button>
-          )}
         </div>
 
         {/* Right: 3 Utility Icon Buttons (Expand, Edit Config, Manual Controls) */}
