@@ -10,7 +10,6 @@ import {
   SlidersHorizontal,
   Settings2,
   Camera,
-  VideoOff,
   AlertCircle,
   Loader2,
   Wifi,
@@ -178,39 +177,8 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </div>
         </div>
 
-        {/* Right: Record Button & Hardware Enable/Disable Toggle */}
+        {/* Right: Hardware Power Toggle (Kept at top header as requested) */}
         <div className="flex items-center gap-2 shrink-0">
-          
-          {/* Record button: enabled only when live streaming */}
-          <button
-            onClick={() => onToggleRecord(cameraId)}
-            disabled={!isStreaming || !isEnabled}
-            title={
-              !isEnabled
-                ? 'Camera hardware is disabled'
-                : !isStreaming
-                ? 'Start live stream first to record'
-                : isRecording
-                ? 'Stop recording'
-                : 'Start recording'
-            }
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-xs disabled:opacity-35 disabled:cursor-not-allowed ${
-              isRecording
-                ? 'bg-red-500/15 text-red-600 dark:text-red-400 border-red-500/40 shadow-xs shadow-red-500/20 animate-pulse'
-                : 'bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)] hover:bg-[var(--bg-card-subtle)] hover:border-[var(--accent-pond)] active:scale-95'
-            }`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full shrink-0 ${
-                isRecording ? 'bg-red-500 animate-ping' : 'bg-red-500'
-              }`}
-            />
-            <span className="font-mono">
-              {isRecording ? `REC ${formatDuration(recordingDuration)}` : 'Record'}
-            </span>
-          </button>
-
-          {/* Hardware Power Toggle */}
           <button
             onClick={() => onToggleEnable(cameraId, isEnabled)}
             title={isEnabled ? 'Hardware is ON (Click to power down)' : 'Hardware is OFF (Click to power up)'}
@@ -244,20 +212,13 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <h4 className="font-bold text-sm sm:text-base text-[var(--text-primary)] mb-1">
               {camera.sourceName || `Camera ${index}`} Offline
             </h4>
-            <p className="text-xs text-[var(--text-secondary)] max-w-xs mb-4">
-              Hardware connection is released. All USB and video resources are freed.
+            <p className="text-xs text-[var(--text-secondary)] max-w-xs">
+              Hardware connection is released. Click the power button above to turn hardware on.
             </p>
-            <button
-              onClick={() => onToggleEnable(cameraId, false)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] font-bold text-xs shadow-xs hover:opacity-90 active:scale-95 cursor-pointer"
-            >
-              <Power className="w-3.5 h-3.5" />
-              <span>Enable Hardware</span>
-            </button>
           </div>
         )}
 
-        {/* State B: Hardware Enabled, but Stream Stopped */}
+        {/* State B: Hardware Enabled, but Stream Stopped (NO duplicate button inside canvas) */}
         {isEnabled && !isStreaming && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
             <div className="w-12 h-12 rounded-2xl bg-[var(--accent-pond-subtle)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] mb-3 shadow-xs">
@@ -266,30 +227,13 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <h4 className="font-bold text-sm sm:text-base text-[var(--text-primary)] mb-1">
               Live Stream Ready
             </h4>
-            <p className="text-xs text-[var(--text-secondary)] max-w-xs mb-4">
-              Camera hardware is connected. Click Start Stream below to begin real-time monitoring.
+            <p className="text-xs text-[var(--text-secondary)] max-w-xs">
+              Stream is currently stopped. Click &quot;Start Stream&quot; below to begin live video.
             </p>
-            <button
-              onClick={() => onStartStream(cameraId)}
-              disabled={isStarting}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] font-bold text-xs sm:text-sm shadow-md hover:opacity-90 active:scale-95 cursor-pointer disabled:opacity-50"
-            >
-              {isStarting ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Connecting Stream...</span>
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 fill-current" />
-                  <span>Start Live Stream</span>
-                </>
-              )}
-            </button>
           </div>
         )}
 
-        {/* State C: Live Video Feed */}
+        {/* State C: Live Video Feed (100% clean, no repeated text overlays) */}
         {isEnabled && isStreaming && (
           <div className="relative shrink-0 flex items-center justify-center" style={fittedRect}>
             <img
@@ -313,21 +257,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               }}
             />
 
-            {/* Overlays: Human-Understandable Live HUD Pill */}
-            <div className="absolute top-3 left-3 flex items-center gap-2 pointer-events-none">
-              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-black/65 backdrop-blur-md text-white border border-white/20 shadow-lg text-xs font-semibold">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="font-bold tracking-wide">LIVE</span>
-                <span className="text-white/40">•</span>
-                <span className="text-white/90">
-                  {camera.resolution === '1280x720' ? '720p HD' : '1080p FHD'}
-                </span>
-                <span className="text-white/40">•</span>
-                <span className="font-mono text-white/90">{camera.targetFps || 30} FPS</span>
-              </div>
-            </div>
-
-            {/* Recording Active HUD tag */}
+            {/* Recording Active HUD tag (Only when active recording) */}
             {isRecording && (
               <div className="absolute top-3 right-3 flex items-center gap-2 px-3 py-1 rounded-full bg-red-950/80 backdrop-blur-md text-white text-xs font-mono font-bold border border-red-500/50 shadow-lg shadow-red-900/40 pointer-events-none animate-pulse">
                 <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
@@ -351,13 +281,15 @@ export const CameraCard: React.FC<CameraCardProps> = ({
       {/* ── 3. Card Bottom Toolbar ────────────────────────────────────── */}
       <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-t border-[var(--border-color)] bg-[var(--bg-card)] shrink-0 gap-2">
         
-        {/* Left: Start / Stop Stream Toggle & Snapshot */}
+        {/* Left: Stream Control & Record Control & Snapshot */}
         <div className="flex items-center gap-2">
+          
+          {/* Stream button: GREEN for start, RED for stop */}
           {isStreaming ? (
             <button
               onClick={() => onStopStream(cameraId)}
               title="Stop live stream"
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-xs font-bold text-[var(--btn-secondary-text)] transition-all cursor-pointer active:scale-95 shadow-xs"
+              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white border border-rose-500 text-xs font-bold transition-all cursor-pointer shadow-xs"
             >
               <Square className="w-3.5 h-3.5 fill-current" />
               <span>Stop Stream</span>
@@ -366,8 +298,8 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <button
               onClick={() => onStartStream(cameraId)}
               disabled={!isEnabled || isStarting}
-              title={!isEnabled ? 'Enable camera first' : 'Start live stream'}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] hover:opacity-90 border border-transparent text-xs font-bold transition-all cursor-pointer active:scale-95 shadow-xs disabled:opacity-40 disabled:cursor-not-allowed"
+              title={!isEnabled ? 'Enable camera hardware first' : 'Start live stream'}
+              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border border-emerald-500 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {isStarting ? (
                 <>
@@ -383,6 +315,35 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             </button>
           )}
 
+          {/* Record button: moved next to Stream button with matching standard button size */}
+          <button
+            onClick={() => onToggleRecord(cameraId)}
+            disabled={!isStreaming || !isEnabled}
+            title={
+              !isEnabled
+                ? 'Camera hardware is disabled'
+                : !isStreaming
+                ? 'Start live stream first to record'
+                : isRecording
+                ? 'Stop recording'
+                : 'Start recording'
+            }
+            className={`inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-xs disabled:opacity-35 disabled:cursor-not-allowed ${
+              isRecording
+                ? 'bg-red-600 hover:bg-red-700 active:scale-95 text-white border-red-500 shadow-xs shadow-red-500/25 animate-pulse'
+                : 'bg-[var(--bg-card)] text-[var(--text-primary)] border-[var(--border-color)] hover:bg-[var(--bg-card-subtle)] hover:border-[var(--accent-pond)] active:scale-95'
+            }`}
+          >
+            <span
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                isRecording ? 'bg-white animate-ping' : 'bg-red-500'
+              }`}
+            />
+            <span className="font-mono">
+              {isRecording ? `REC ${formatDuration(recordingDuration)}` : 'Record'}
+            </span>
+          </button>
+
           {/* Quick Snapshot button */}
           {isStreaming && (
             <button
@@ -395,9 +356,8 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           )}
         </div>
 
-        {/* Right: 3 Utility Icon Buttons from Sketch (Expand, Edit Config, Manual Controls) */}
+        {/* Right: 3 Utility Icon Buttons (Expand, Edit Config, Manual Controls) */}
         <div className="flex items-center gap-1.5">
-          
           {/* 1. Expand / Fullscreen */}
           <button
             onClick={() => onExpandToggle(cameraId)}
@@ -428,7 +388,6 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           >
             <SlidersHorizontal className="w-3.5 h-3.5" />
           </button>
-
         </div>
       </div>
     </div>

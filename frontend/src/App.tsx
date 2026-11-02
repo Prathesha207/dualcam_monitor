@@ -401,8 +401,6 @@ export default function App() {
         theme={theme}
         onThemeChange={handleThemeChange}
         cameraConfig={cameras[0]}
-        cameras={cameras}
-        onToggleEnableCamera={handleToggleEnable}
         activeCameraCount={cameras.filter((c) => c.is_enabled !== false).length}
         canRecordBoth={canRecordBoth}
         isRecordingBoth={isRecordingBoth}
