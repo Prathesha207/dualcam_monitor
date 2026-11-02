@@ -226,26 +226,26 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           <div className="absolute inset-0 z-30 bg-white/40 pointer-events-none animate-out fade-out duration-200" />
         )}
 
-        {/* State A: Connection Error / Unreachable (Highest priority when not streaming) */}
+        {/* State A: Connection Error / Unreachable (Same clean styling as Standby) */}
         {!isStreaming && connectionError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
-            <div className="w-14 h-14 rounded-2xl bg-rose-500/10 border border-rose-500/25 flex items-center justify-center text-rose-500 mb-3 shadow-xs">
-              <AlertTriangle className="w-7 h-7 stroke-[1.75]" />
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 mb-3 shadow-xs">
+              <AlertTriangle className="w-6 h-6 stroke-[1.75]" />
             </div>
-            <h4 className="font-bold text-sm sm:text-base text-rose-600 dark:text-rose-400 mb-1">
+            <h4 className="font-bold text-sm sm:text-base text-[var(--text-primary)] mb-1">
               Camera Unreachable
             </h4>
-            <p className="text-xs text-[var(--text-secondary)] max-w-sm mb-4 leading-relaxed font-mono px-3 py-1.5 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
+            <p className="text-xs text-[var(--text-secondary)] max-w-xs mb-4">
               {connectionError}
             </p>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => onOpenEdit(camera)}
                 className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-[var(--bg-card-subtle)] hover:bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] hover:border-[var(--accent-pond)] text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
               >
                 <Settings2 className="w-3.5 h-3.5" />
-                <span>⚙ Edit Camera IP</span>
+                <span>Edit Camera IP</span>
               </button>
               <button
                 type="button"
@@ -261,7 +261,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 ) : (
                   <>
                     <RefreshCw className="w-3.5 h-3.5" />
-                    <span>⟳ Retry</span>
+                    <span>Retry</span>
                   </>
                 )}
               </button>
@@ -432,18 +432,20 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <Settings2 className="w-3.5 h-3.5" />
           </button>
 
-          {/* 3. Manual Live Controls (Sliders: Exposure, Gain, Focus, Brightness, Contrast) */}
-          <button
-            onClick={() => onOpenControls(camera)}
-            title={isControlsOpen ? 'Close image controls' : 'Adjust exposure, gain, focus & brightness'}
-            className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all cursor-pointer active:scale-95 shadow-xs ${
-              isControlsOpen
-                ? 'bg-[var(--accent-pond)] text-white border-[var(--accent-pond)] shadow-md'
-                : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border-[var(--btn-secondary-border)] text-[var(--text-primary)]'
-            }`}
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-          </button>
+          {/* 3. Manual Live Controls (Sliders: Exposure, Gain, Focus, Brightness, Contrast) - ONLY in manual mode */}
+          {camera.controlMode === 'manual' && (
+            <button
+              onClick={() => onOpenControls(camera)}
+              title={isControlsOpen ? 'Close image controls' : 'Adjust exposure, gain, focus & brightness'}
+              className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all cursor-pointer active:scale-95 shadow-xs ${
+                isControlsOpen
+                  ? 'bg-[var(--accent-pond)] text-white border-[var(--accent-pond)] shadow-md'
+                  : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border-[var(--btn-secondary-border)] text-[var(--text-primary)]'
+              }`}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -3,7 +3,6 @@ import { CameraConfig } from '../types';
 import {
   Camera,
   Check,
-  Cpu,
   Wifi,
   Loader2,
   Usb,
@@ -53,7 +52,6 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
   isRecording = false,
 }) => {
   const [localConfig, setLocalConfig] = useState<CameraConfig>({ ...config });
-  const [activeTab, setActiveTab] = useState<'stream' | 'image' | 'oak'>('stream');
 
   const [savedCameras, setSavedCameras] = useState<SavedCameraRow[]>([]);
   const [hwDevices, setHwDevices] = useState<HwDevice[]>([]);
@@ -272,6 +270,19 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       setErrorMessage('Please enter a Camera Label / Name before saving.');
       return;
     }
+
+    // Prevent duplicate camera name (spaces, dashes, underscores ignored in comparison)
+    const normTarget = name.replace(/[\s_\-]+/g, '').toLowerCase();
+    const duplicateName = savedCameras.find(
+      (c) => c.name && c.name.replace(/[\s_\-]+/g, '').toLowerCase() === normTarget
+    );
+    if (duplicateName) {
+      setErrorMessage(
+        `Camera name "${name}" is already in use by "${duplicateName.name}". Dual cameras must have different names.`
+      );
+      return;
+    }
+
     const ipAddress = newType === 'usb' ? (detectedUsb?.ip_or_id || 'usb') : newIp.trim();
 
     if (newType === 'ip' && !newIp.trim()) {
@@ -452,30 +463,10 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
         </>
       }
     >
-      {/* Tab Switcher: Compact */}
-      <div className="flex border-b border-[var(--border-color)] pb-1.5 mb-3 -mt-1 shrink-0">
-        {(['stream', 'image', 'oak'] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => {
-              setActiveTab(tab);
-            }}
-            className={`pb-1 px-2.5 text-xs font-bold border-b-2 transition-all cursor-pointer ${activeTab === tab
-              ? 'border-[var(--accent-pond)] text-[var(--accent-pond)]'
-              : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-              }`}
-          >
-            {tab === 'stream' ? 'Cameras & Connection' : tab === 'image' ? 'Image Adjustments' : 'OAK DepthAI VPU'}
-          </button>
-        ))}
-      </div>
-
       {/* Main Container: Compact, single smooth scroll handled by parent modal */}
       <div className="space-y-2.5">
-        {activeTab === 'stream' && (
-          <>
-            {/* ── 1. STREAM OUTPUT PROFILE (Resolution & Frame Count) ── */}
-            <div className="p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
+        {/* ── 1. STREAM OUTPUT PROFILE (Resolution & Frame Count) ── */}
+        <div className="p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 {/* Resolution */}
                 <div className="space-y-1">
@@ -965,189 +956,6 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 })}
               </div>
             </div>
-          </>
-        )}
-
-        {activeTab === 'image' && (
-          <div className="space-y-3.5 p-0.5">
-            {/* 1. SENSOR GAIN (ISO) */}
-            <div className="p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-1.5">
-              <div className="flex items-center justify-between text-xs font-bold text-[var(--text-primary)]">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-amber-500" />
-                  <span>Sensor Gain (ISO)</span>
-                </div>
-                <span className="font-mono text-xs font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded">
-                  ISO {localConfig.gain ?? localConfig.iso ?? 400}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={100}
-                max={1600}
-                step={10}
-                value={localConfig.gain ?? localConfig.iso ?? 400}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value, 10);
-                  setLocalConfig({ ...localConfig, gain: val, iso: val, controlMode: 'manual', autoExposure: false, autoFocus: false });
-                }}
-                style={getSliderStyle(localConfig.gain ?? localConfig.iso ?? 400, 100, 1600)}
-                className="w-full h-1.5 rounded cursor-pointer transition-all"
-              />
-              <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
-                <span>100 (Clean)</span>
-                <span>400 (Standard)</span>
-                <span>800 (Boost)</span>
-                <span>1600 (Max)</span>
-              </div>
-            </div>
-
-            {/* 2. FOCUS (LENS POSITION) */}
-            <div className="p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-1.5">
-              <div className="flex items-center justify-between text-xs font-bold text-[var(--text-primary)]">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-blue-500" />
-                  <span>Focus Lens Position</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[var(--btn-secondary-bg)] text-[var(--text-secondary)] border border-[var(--border-color)]">
-                    MANUAL
-                  </span>
-                  <span className="font-mono text-xs font-bold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded">
-                    {localConfig.focusAvailable === false ? 'Unavailable' : `${localConfig.focus ?? 0} / 255`}
-                  </span>
-                </div>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={255}
-                step={1}
-                value={localConfig.focus ?? 0}
-                disabled={localConfig.focusAvailable === false}
-                onChange={(e) => {
-                  setLocalConfig({ ...localConfig, focus: parseInt(e.target.value, 10), controlMode: 'manual', autoFocus: false, autoExposure: false });
-                }}
-                style={getSliderStyle(localConfig.focus ?? 0, 0, 255)}
-                className="w-full h-1.5 rounded cursor-pointer transition-all disabled:cursor-not-allowed"
-              />
-              <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
-                <span>0 (Far / Infinity)</span>
-                <span>Preset value</span>
-                <span>255 (Macro / Close)</span>
-              </div>
-            </div>
-
-            {/* 3. EXPOSURE (SHUTTER TIME) */}
-            <div className="p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-1.5">
-              <div className="flex items-center justify-between text-xs font-bold text-[var(--text-primary)]">
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-amber-400" />
-                  <span>Exposure Shutter Time</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-[var(--btn-secondary-bg)] text-[var(--text-secondary)] border border-[var(--border-color)]">
-                    MANUAL
-                  </span>
-                  <span className="font-mono text-xs font-bold text-[var(--accent-pond)] bg-[var(--accent-pond-subtle)] px-2 py-0.5 rounded">
-                    {localConfig.exposure ?? 8} ms
-                  </span>
-                </div>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={33}
-                step={1}
-                value={localConfig.exposure ?? 8}
-                onChange={(e) => {
-                  setLocalConfig({ ...localConfig, exposure: parseInt(e.target.value, 10), controlMode: 'manual', autoFocus: false, autoExposure: false });
-                }}
-                style={getSliderStyle(localConfig.exposure ?? 8, 1, 33)}
-                className="w-full h-1.5 rounded cursor-pointer transition-all"
-              />
-              <div className="flex justify-between text-[9px] text-[var(--text-muted)] font-mono">
-                <span>1 ms (Fast)</span>
-                <span>Preset value</span>
-                <span>33 ms (Max Light)</span>
-              </div>
-            </div>
-
-            {/* 4. TONE CONTROLS (Brightness & Contrast) */}
-            <div className="pt-2 border-t border-[var(--border-color)] space-y-3">
-              <div>
-                <div className="flex items-center justify-between text-xs font-semibold text-[var(--text-secondary)] mb-1">
-                  <span>Brightness</span>
-                  <span className="font-mono text-xs font-bold text-[var(--text-primary)]">
-                    {(localConfig.brightness ?? 0) > 0 ? `+${localConfig.brightness}` : (localConfig.brightness ?? 0)}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={-50}
-                  max={50}
-                  value={localConfig.brightness ?? 0}
-                  onChange={(e) => setLocalConfig({ ...localConfig, brightness: parseInt(e.target.value, 10), controlMode: 'manual', autoFocus: false, autoExposure: false })}
-                  style={getSliderStyle(localConfig.brightness ?? 0, -50, 50)}
-                  className="w-full h-1.5 rounded cursor-pointer transition-all"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between text-xs font-semibold text-[var(--text-secondary)] mb-1">
-                  <span>Contrast</span>
-                  <span className="font-mono text-xs font-bold text-[var(--text-primary)]">
-                    {localConfig.contrast ?? 50}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={localConfig.contrast ?? 50}
-                  onChange={(e) => setLocalConfig({ ...localConfig, contrast: parseInt(e.target.value, 10), controlMode: 'manual', autoFocus: false, autoExposure: false })}
-                  style={getSliderStyle(localConfig.contrast ?? 50, 0, 100)}
-                  className="w-full h-1.5 rounded cursor-pointer transition-all"
-                />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'oak' && (
-          <div className="space-y-2.5 p-0.5">
-            <div className="p-2.5 rounded-xl bg-[var(--accent-pond-subtle)] border border-[var(--border-color)] text-xs leading-relaxed text-[var(--text-primary)]">
-              <div className="font-bold flex items-center gap-1.5 text-[var(--accent-pond)] mb-0.5">
-                <Cpu className="w-3.5 h-3.5" />
-                DepthAI Hardware Pipeline
-              </div>
-              High-performance ISP and H.264/H.265 hardware video encoding runs directly on the DepthAI camera device at ultra-low latency.
-            </div>
-
-            <div className="space-y-1.5 text-xs">
-              <div className="flex justify-between py-1 border-b border-[var(--border-color)]">
-                <span className="text-[var(--text-secondary)]">Pipeline Mode</span>
-                <span className="font-mono font-bold text-[var(--accent-pond)]">DepthAI Color &amp; ISP Stream</span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-[var(--border-color)]">
-                <span className="text-[var(--text-secondary)]">Hardware Status</span>
-                <span className={`font-mono font-bold ${config.connected ? 'text-emerald-500' : 'text-slate-400'}`}>
-                  {config.connected ? 'Online • DepthAI Device Connected' : 'Standby • No Device Connected'}
-                </span>
-              </div>
-              <div className="flex justify-between py-1 border-b border-[var(--border-color)]">
-                <span className="text-[var(--text-secondary)]">Target VPU Latency</span>
-                <span className="font-mono font-bold text-[var(--text-primary)]">~6.4 ms / frame</span>
-              </div>
-              <div className="flex justify-between py-1">
-                <span className="text-[var(--text-secondary)]">Active Profile</span>
-                <span className="font-mono font-bold text-[var(--text-primary)]">
-                  {localConfig.resolution} @ {localConfig.targetFps} FPS
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </Modal>
   );

@@ -29,6 +29,11 @@ def safe_camera_name(name: str) -> str:
     return cleaned[:50] or "Camera"
 
 
+def normalize_name_for_comparison(n: str) -> str:
+    """Normalize for duplicate checking: strips spaces, underscores, dashes, case-insensitive."""
+    return re.sub(r'[\s_\-]+', '', str(n or '').strip()).lower()
+
+
 # =========================================================
 # CAMERA CRUD
 # =========================================================
@@ -38,13 +43,16 @@ def create_camera(db: Session, data: CameraCreate):
         logger.info("[CREATE_CAMERA] Called")
 
         clean_name = safe_camera_name(data.name)
-        # Check duplicate camera name
-        existing = db.query(Camera).filter(Camera.name.ilike(clean_name)).first()
-        if existing:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Camera name '{clean_name}' is already in use by another camera. Please choose a unique name."
-            )
+        norm_target = normalize_name_for_comparison(clean_name)
+
+        # Check duplicate camera name against all existing cameras in DB
+        all_cams = db.query(Camera).all()
+        for c in all_cams:
+            if normalize_name_for_comparison(c.name) == norm_target:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Camera name '{clean_name}' is already in use by another camera ('{c.name}'). Dual cameras must have different names."
+                )
 
         dumped = data.model_dump()
         dumped["name"] = clean_name
@@ -105,7 +113,8 @@ def update_camera_partial(db: Session, camera_id: int, data: CameraUpdate):
         # Name sanitization, duplicate check, and lock while recording
         if "name" in update_data and update_data["name"] is not None:
             clean_name = safe_camera_name(update_data["name"])
-            if clean_name.lower() != camera.name.lower():
+            norm_target = normalize_name_for_comparison(clean_name)
+            if normalize_name_for_comparison(camera.name) != norm_target:
                 # Check if camera is currently recording
                 from app.services.recording_service import active_recordings
                 for sid, rec in active_recordings.items():
@@ -114,13 +123,14 @@ def update_camera_partial(db: Session, camera_id: int, data: CameraUpdate):
                             status_code=409,
                             detail="Cannot rename camera while recording is active. Please stop recording first."
                         )
-                # Check duplicate
-                existing = db.query(Camera).filter(Camera.id != camera_id, Camera.name.ilike(clean_name)).first()
-                if existing:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Camera name '{clean_name}' is already in use by another camera. Please choose a unique name."
-                    )
+                # Check duplicate across all other cameras in DB
+                all_cams = db.query(Camera).filter(Camera.id != camera_id).all()
+                for c in all_cams:
+                    if normalize_name_for_comparison(c.name) == norm_target:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Camera name '{clean_name}' is already in use by another camera ('{c.name}'). Dual cameras must have different names."
+                        )
             update_data["name"] = clean_name
 
         if "clip_duration_minutes" in update_data and update_data["clip_duration_minutes"] is not None:

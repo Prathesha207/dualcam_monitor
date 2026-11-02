@@ -9,7 +9,6 @@ import {
   Trash2,
   Usb,
   Wifi,
-  Sliders,
   HardDrive,
   Loader2,
   AlertCircle,
@@ -46,8 +45,6 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
   isRecording = false,
   existingCameras = [],
 }) => {
-  const [activeTab, setActiveTab] = useState<'stream' | 'image'>('stream');
-
   // Camera parameters
   const [name, setName] = useState('');
   const [clipDurationMinutes, setClipDurationMinutes] = useState(1);
@@ -180,13 +177,14 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
       return;
     }
 
+    const normTarget = cleanName.replace(/[\s_\-]+/g, '').toLowerCase();
     if (
       existingCameras &&
       existingCameras.some(
-        (c) => c.id !== camera.id && c.sourceName?.trim().toLowerCase() === cleanName.toLowerCase()
+        (c) => c.id !== camera.id && (c.sourceName || '').replace(/[\s_\-]+/g, '').toLowerCase() === normTarget
       )
     ) {
-      setErrorMessage(`Camera name "${cleanName}" is already in use by another camera. Please choose a unique name.`);
+      setErrorMessage(`Camera name "${cleanName}" is already in use by another camera. Dual cameras must have different names.`);
       setIsSaving(false);
       return;
     }
@@ -296,23 +294,6 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
         </div>
       }
     >
-      {/* Tab Switcher: Exact same styling as CameraSettingsModal */}
-      <div className="flex border-b border-[var(--border-color)] pb-1.5 mb-3.5 -mt-1 shrink-0">
-        {(['stream', 'image'] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`pb-1 px-3 text-xs font-bold border-b-2 transition-all cursor-pointer ${
-              activeTab === tab
-                ? 'border-[var(--accent-pond)] text-[var(--accent-pond)]'
-                : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-            }`}
-          >
-            {tab === 'stream' ? 'Cameras & Connection' : 'Image Adjustments'}
-          </button>
-        ))}
-      </div>
-
       {errorMessage && (
         <div className="mb-3 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2 font-medium">
           <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
@@ -320,9 +301,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
         </div>
       )}
 
-      {/* Tab 1: Cameras & Connection */}
-      {activeTab === 'stream' && (
-        <div className="space-y-3">
+      <div className="space-y-3">
           
           {/* 1. Stream Output Profile (Resolution, FPS, Video Format) */}
           <div className="p-3 rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-3">
@@ -682,123 +661,6 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
           </div>
 
         </div>
-      )}
-
-      {/* Tab 2: Image Adjustments */}
-      {activeTab === 'image' && (
-        <div className="space-y-3.5 p-3 rounded-2xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
-          <div className="flex items-center justify-between pb-2 border-b border-[var(--border-color)]">
-            <span className="text-xs font-bold text-[var(--text-primary)]">
-              Manual Image Sensor Calibration
-            </span>
-            <span className="text-[10px] font-mono text-[var(--accent-pond)] font-bold">
-              Mode: {controlMode.toUpperCase()}
-            </span>
-          </div>
-
-          {controlMode === 'auto' && (
-            <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-medium">
-              Camera is in AUTO mode. Switch to MANUAL under &quot;Cameras &amp; Connection&quot; to apply custom sensor values.
-            </div>
-          )}
-
-          {/* Exposure Slider */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs font-bold text-[var(--text-secondary)]">
-              <span>Exposure Time</span>
-              <span className="font-mono text-[var(--accent-pond)]">{exposure} ms</span>
-            </div>
-            <input
-              type="range"
-              min={1}
-              max={33}
-              step={1}
-              value={exposure}
-              disabled={controlMode === 'auto'}
-              onChange={(e) => setExposure(parseInt(e.target.value, 10))}
-              style={getSliderStyle(exposure, 1, 33)}
-              className="w-full h-1.5 rounded cursor-pointer"
-            />
-          </div>
-
-          {/* Gain / ISO Slider */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs font-bold text-[var(--text-secondary)]">
-              <span>Gain / ISO</span>
-              <span className="font-mono text-[var(--accent-pond)]">{gain} ISO</span>
-            </div>
-            <input
-              type="range"
-              min={100}
-              max={1600}
-              step={50}
-              value={gain}
-              disabled={controlMode === 'auto'}
-              onChange={(e) => setGain(parseInt(e.target.value, 10))}
-              style={getSliderStyle(gain, 100, 1600)}
-              className="w-full h-1.5 rounded cursor-pointer"
-            />
-          </div>
-
-          {/* Focus Slider */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs font-bold text-[var(--text-secondary)]">
-              <span>Lens Focus Position</span>
-              <span className="font-mono text-[var(--accent-pond)]">{focus}</span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={255}
-              step={5}
-              value={focus}
-              disabled={controlMode === 'auto'}
-              onChange={(e) => setFocus(parseInt(e.target.value, 10))}
-              style={getSliderStyle(focus, 0, 255)}
-              className="w-full h-1.5 rounded cursor-pointer"
-            />
-          </div>
-
-          {/* Brightness Slider */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs font-bold text-[var(--text-secondary)]">
-              <span>Brightness Offset</span>
-              <span className="font-mono text-[var(--accent-pond)]">{brightness}</span>
-            </div>
-            <input
-              type="range"
-              min={-10}
-              max={10}
-              step={1}
-              value={brightness}
-              disabled={controlMode === 'auto'}
-              onChange={(e) => setBrightness(parseInt(e.target.value, 10))}
-              style={getSliderStyle(brightness, -10, 10)}
-              className="w-full h-1.5 rounded cursor-pointer"
-            />
-          </div>
-
-          {/* Contrast Slider */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between text-xs font-bold text-[var(--text-secondary)]">
-              <span>Contrast Level</span>
-              <span className="font-mono text-[var(--accent-pond)]">{contrast}%</span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={5}
-              value={contrast}
-              disabled={controlMode === 'auto'}
-              onChange={(e) => setContrast(parseInt(e.target.value, 10))}
-              style={getSliderStyle(contrast, 0, 100)}
-              className="w-full h-1.5 rounded cursor-pointer"
-            />
-          </div>
-
-        </div>
-      )}
 
     </Modal>
   );
