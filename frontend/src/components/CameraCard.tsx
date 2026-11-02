@@ -282,7 +282,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
       {/* ── 3. Card Bottom Toolbar ────────────────────────────────────── */}
       <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-t border-[var(--border-color)] bg-[var(--bg-card)] shrink-0 gap-2">
         
-        {/* Left: Stream Control & Record Control & Snapshot */}
+        {/* Left: Stream Control & Record Control */}
         <div className="flex items-center gap-2">
           
           {/* Stream button: GREEN for start, WARNING AMBER for stop */}
@@ -316,16 +316,6 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             </button>
           )}
 
-          {/* Quick Snapshot button (Placed on left of Record) */}
-          <button
-            onClick={handleSnapshotClick}
-            disabled={!isStreaming || !isEnabled}
-            title={!isStreaming ? 'Start stream first to take snapshot' : 'Take instant high-resolution snapshot'}
-            className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all cursor-pointer active:scale-95 shadow-xs disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none"
-          >
-            <Camera className="w-3.5 h-3.5" />
-          </button>
-
           {/* Record button: NO blue outer colour on hover/focus/active; pure red state */}
           <button
             onClick={() => onToggleRecord(cameraId)}
@@ -356,8 +346,18 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </button>
         </div>
 
-        {/* Right: 3 Utility Icon Buttons (Expand, Edit Config, Manual Controls) */}
+        {/* Right: Utility Icon Buttons (Snapshot, Expand, Edit Config, Manual Controls) */}
         <div className="flex items-center gap-1.5">
+          {/* Quick Snapshot button (Placed on the left of Expand) */}
+          <button
+            onClick={handleSnapshotClick}
+            disabled={!isStreaming || !isEnabled}
+            title={!isStreaming ? 'Start stream first to take snapshot' : 'Take instant high-resolution snapshot'}
+            className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all cursor-pointer active:scale-95 shadow-xs disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none"
+          >
+            <Camera className="w-3.5 h-3.5" />
+          </button>
+
           {/* 1. Expand / Fullscreen */}
           <button
             onClick={() => onExpandToggle(cameraId)}
