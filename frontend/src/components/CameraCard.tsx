@@ -11,6 +11,8 @@ import {
   Settings2,
   Camera,
   AlertCircle,
+  AlertTriangle,
+  RefreshCw,
   Loader2,
   Wifi,
   Usb,
@@ -26,6 +28,7 @@ interface CameraCardProps {
   recordingDuration?: number;
   isExpanded?: boolean;
   isControlsOpen?: boolean;
+  connectionError?: string | null;
   onStartStream: (id: number) => void;
   onStopStream: (id: number) => void;
   onToggleRecord: (id: number) => void;
@@ -45,6 +48,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
   recordingDuration = 0,
   isExpanded = false,
   isControlsOpen = false,
+  connectionError = null,
   onStartStream,
   onStopStream,
   onToggleRecord,
@@ -135,7 +139,13 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         
         {/* Left: Camera Identification, Status Badges & Hardware Details */}
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] shrink-0">
+          <div
+            className={`flex items-center justify-center w-8 h-8 rounded-xl border shrink-0 transition-colors ${
+              connectionError
+                ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                : 'bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border-[var(--border-color)]'
+            }`}
+          >
             {isIpCamera ? <Wifi className="w-4 h-4" /> : <Usb className="w-4 h-4" />}
           </div>
 
@@ -151,6 +161,11 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   LIVE
+                </span>
+              ) : connectionError ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                  UNREACHABLE
                 </span>
               ) : isEnabled ? (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border-color)] shrink-0">
@@ -228,8 +243,51 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </div>
         )}
 
-        {/* State B: Hardware Enabled, but Stream Stopped (NO duplicate button inside canvas) */}
-        {isEnabled && !isStreaming && (
+        {/* State B1: Hardware Enabled, but Connection Error / Unreachable */}
+        {isEnabled && !isStreaming && connectionError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 mb-3 shadow-xs">
+              <AlertTriangle className="w-6 h-6 stroke-[1.75]" />
+            </div>
+            <h4 className="font-bold text-sm sm:text-base text-rose-600 dark:text-rose-400 mb-1">
+              Camera Unreachable
+            </h4>
+            <p className="text-xs text-[var(--text-secondary)] max-w-sm mb-4 leading-relaxed">
+              {connectionError}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => onOpenEdit(camera)}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl bg-[var(--bg-card-subtle)] hover:bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] hover:border-[var(--accent-pond)] text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+              >
+                <Settings2 className="w-3.5 h-3.5" />
+                <span>Edit Camera IP</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onStartStream(cameraId)}
+                disabled={isStarting}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white border border-rose-500 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-50"
+              >
+                {isStarting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Connecting...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Retry</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* State B2: Hardware Enabled, Stream Stopped & Ready */}
+        {isEnabled && !isStreaming && !connectionError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
             <div className="w-12 h-12 rounded-2xl bg-[var(--accent-pond-subtle)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] mb-3 shadow-xs">
               <Radio className="w-6 h-6 stroke-[1.75]" />

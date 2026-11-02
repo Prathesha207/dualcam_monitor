@@ -63,6 +63,7 @@ export default function App() {
 
   const [expandedCameraId, setExpandedCameraId] = useState<number | null>(null);
   const [activeControlsCamera, setActiveControlsCamera] = useState<CameraConfig | null>(null);
+  const [connectionErrors, setConnectionErrors] = useState<Record<number, string | null>>({});
   const [editCamera, setEditCamera] = useState<CameraConfig | null>(null);
   const [addCameraOpen, setAddCameraOpen] = useState<boolean>(false);
   const [helpOpen, setHelpOpen] = useState<boolean>(false);
@@ -150,10 +151,13 @@ export default function App() {
         await cameraService.start({ camera_id: id, ip_address: cam?.ipAddress });
         await cameraService.startStream(id);
         setStreamingStates((prev) => ({ ...prev, [id]: true }));
+        setConnectionErrors((prev) => ({ ...prev, [id]: null }));
         showToast('success', `${cam?.sourceName || `Camera ${id}`} live stream started`);
         addLog(`Started live stream for camera ${id}`, 'info');
       } catch (err: any) {
-        showToast('error', err?.message || `Failed to start stream on Camera ${id}`);
+        const msg = err?.message || `Failed to start stream on Camera ${id}`;
+        setConnectionErrors((prev) => ({ ...prev, [id]: msg }));
+        showToast('error', msg);
       } finally {
         setStartingStates((prev) => ({ ...prev, [id]: false }));
       }
@@ -187,6 +191,7 @@ export default function App() {
   const handleToggleEnable = useCallback(
     async (id: number, currentEnabled: boolean) => {
       try {
+        setConnectionErrors((prev) => ({ ...prev, [id]: null }));
         if (currentEnabled) {
           // Disable hardware
           if (streamingStates[id]) {
@@ -317,6 +322,7 @@ export default function App() {
     async (updated: CameraConfig) => {
       if (!updated.id) return;
       try {
+        setConnectionErrors((prev) => ({ ...prev, [updated.id!]: null }));
         await cameraService.updateCamera(updated.id, {
           name: updated.sourceName,
           ip_address: updated.ipAddress,
@@ -474,6 +480,7 @@ export default function App() {
                     recordingDuration={recordingStates[camId]?.duration || 0}
                     isExpanded={expandedCameraId === camId}
                     isControlsOpen={activeControlsCamera?.id === camId}
+                    connectionError={connectionErrors[camId] || null}
                     onStartStream={handleStartStream}
                     onStopStream={handleStopStream}
                     onToggleRecord={handleToggleRecord}
