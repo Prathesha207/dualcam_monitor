@@ -194,6 +194,32 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
         ? (availableDevices.find((d) => d.is_usb)?.ip_or_id || ipAddress || 'usb')
         : ipAddress.trim();
 
+    if (connectionType === 'ip') {
+      const parts = chosenIp.split('.');
+      const isSyntaxValid =
+        parts.length === 4 &&
+        parts.every((p) => /^\d+$/.test(p) && parseInt(p, 10) >= 0 && parseInt(p, 10) <= 255);
+      if (!isSyntaxValid) {
+        setErrorMessage(
+          `Invalid IP address: "${chosenIp}". Please enter a valid IPv4 address with 4 numbers between 0-255 (e.g. 169.254.21.191).`
+        );
+        setIsSaving(false);
+        return;
+      }
+
+      // Check if IP is already used by another camera
+      const duplicateIp = existingCameras?.find(
+        (c) => c.id !== camera.id && c.ipAddress && c.ipAddress.trim().toLowerCase() === chosenIp.toLowerCase()
+      );
+      if (duplicateIp) {
+        setErrorMessage(
+          `IP address "${chosenIp}" is already occupied by "${duplicateIp.sourceName || 'Camera'}". Dual cameras must use different IP addresses.`
+        );
+        setIsSaving(false);
+        return;
+      }
+    }
+
     try {
       const updated: CameraConfig = {
         ...camera,

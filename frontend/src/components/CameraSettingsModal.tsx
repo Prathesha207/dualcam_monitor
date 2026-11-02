@@ -285,9 +285,17 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
 
     const ipAddress = newType === 'usb' ? (detectedUsb?.ip_or_id || 'usb') : newIp.trim();
 
-    if (newType === 'ip' && !newIp.trim()) {
-      setErrorMessage('Please enter a valid IP address or hostname');
-      return;
+    if (newType === 'ip') {
+      const parts = ipAddress.split('.');
+      const isSyntaxValid =
+        parts.length === 4 &&
+        parts.every((p) => /^\d+$/.test(p) && parseInt(p, 10) >= 0 && parseInt(p, 10) <= 255);
+      if (!isSyntaxValid) {
+        setErrorMessage(
+          `Invalid IP address: "${ipAddress}". Please enter a valid IPv4 address with 4 numbers between 0-255 (e.g. 169.254.21.191).`
+        );
+        return;
+      }
     }
 
     // Prevent duplicate hardware assignment across dual cameras

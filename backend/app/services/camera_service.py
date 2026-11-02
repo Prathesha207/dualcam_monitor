@@ -56,6 +56,26 @@ def create_camera(db: Session, data: CameraCreate):
 
         dumped = data.model_dump()
         dumped["name"] = clean_name
+
+        # Check IP address validity and uniqueness across dual cameras
+        ip = (data.ip_address or "").strip()
+        if ip and ip.lower() not in {"usb", "auto"}:
+            import ipaddress
+            try:
+                ip_obj = ipaddress.IPv4Address(ip)
+                clean_ip = str(ip_obj)
+            except Exception:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid IP address format: '{ip}'. Expected a valid IPv4 address (e.g. 169.254.21.191)."
+                )
+            for c in all_cams:
+                if c.ip_address and c.ip_address.strip().lower() == clean_ip.lower():
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"IP address '{clean_ip}' is already in use by '{c.name}'. Dual cameras must have different IP addresses."
+                    )
+            dumped["ip_address"] = clean_ip
         if "clip_duration_minutes" in dumped and dumped["clip_duration_minutes"]:
             dumped["clip_duration_minutes"] = max(1, int(dumped["clip_duration_minutes"]))
         else:
@@ -132,6 +152,27 @@ def update_camera_partial(db: Session, camera_id: int, data: CameraUpdate):
                             detail=f"Camera name '{clean_name}' is already in use by another camera ('{c.name}'). Dual cameras must have different names."
                         )
             update_data["name"] = clean_name
+
+        if "ip_address" in update_data and update_data["ip_address"] is not None:
+            new_ip = str(update_data["ip_address"] or "").strip()
+            if new_ip and new_ip.lower() not in {"usb", "auto"}:
+                import ipaddress
+                try:
+                    ip_obj = ipaddress.IPv4Address(new_ip)
+                    clean_ip = str(ip_obj)
+                except Exception:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid IP address format: '{new_ip}'. Expected a valid IPv4 address (e.g. 169.254.21.191)."
+                    )
+                all_cams = db.query(Camera).filter(Camera.id != camera_id).all()
+                for c in all_cams:
+                    if c.ip_address and c.ip_address.strip().lower() == clean_ip.lower():
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"IP address '{clean_ip}' is already in use by '{c.name}'. Dual cameras must have different IP addresses."
+                        )
+                update_data["ip_address"] = clean_ip
 
         if "clip_duration_minutes" in update_data and update_data["clip_duration_minutes"] is not None:
             update_data["clip_duration_minutes"] = max(1, int(update_data["clip_duration_minutes"]))

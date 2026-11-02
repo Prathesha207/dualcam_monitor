@@ -156,14 +156,17 @@ class OakCameraService:
     async def connect(self, ip: str) -> bool:
         loop = asyncio.get_running_loop()
         self._last_connection_error = None
-        max_attempts = 4
+        self._configured_ip = str(ip or "").strip()
+        max_attempts = 2
         for attempt in range(max_attempts):
             try:
                 logger.info(f"[DEVICE] Connecting to {ip} (attempt {attempt + 1}/{max_attempts})")
                 try:
                     claimed = set()
                     try:
-                        if 'oak_camera_service' in globals() and hasattr(oak_camera_service, 'get_claimed_mxids'):
+                        if 'oak_camera_service' in globals() and hasattr(oak_camera_service, 'get_claimed_targets'):
+                            claimed = oak_camera_service.get_claimed_targets(exclude_id=self._active_camera_id)
+                        elif 'oak_camera_service' in globals() and hasattr(oak_camera_service, 'get_claimed_mxids'):
                             claimed = oak_camera_service.get_claimed_mxids(exclude_id=self._active_camera_id)
                     except Exception:
                         pass
@@ -175,7 +178,7 @@ class OakCameraService:
                     self.is_connected = False
                     realtime_log_service.add_log(
                         "camera", "CAMERA",
-                        f"No OAK device found ({ip})",
+                        err_msg,
                         "error"
                     )
                     return False
@@ -214,8 +217,9 @@ class OakCameraService:
                 return True
             except Exception as e:
                 err_str = str(e)
-                if "already used" in err_str.lower() or "in use" in err_str.lower():
-                    clean_msg = "Device is already used by another application/process. Make sure to close all applications/processes using the device before starting a new one."
+                is_usb = ip.strip().lower() in {"usb", "auto"}
+                if ("already used" in err_str.lower() or "in use" in err_str.lower()) and is_usb:
+                    clean_msg = "USB device is already in use by another application/process. Make sure to close other software using the camera."
                     self._last_connection_error = clean_msg
                     if attempt < max_attempts - 1:
                         logger.warning(f"[DEVICE] Device is reported in use, waiting 2.0s to retry (attempt {attempt + 1}/{max_attempts})...")
@@ -223,24 +227,18 @@ class OakCameraService:
                         continue
                     else:
                         logger.warning(f"[DEVICE] Connection failed after {max_attempts} attempts: {clean_msg}")
-                        realtime_log_service.add_log(
-                            "camera",
-                            "CAMERA",
-                            clean_msg,
-                            "error"
-                        )
+                        realtime_log_service.add_log("camera", "CAMERA", clean_msg, "error")
                         self.is_connected = False
                         return False
+                elif any(k in err_str.lower() for k in ["not found", "no available", "x_link_device_not_found", "failed to find", "timeout"]):
+                    clean_msg = f"No OAK camera found at {ip}. Please check the IP address or connection."
+                else:
+                    clean_msg = f"Failed to connect to camera ({ip}): {err_str}"
 
-                logger.error(f"[DEVICE] Connection failed: {e}")
-                realtime_log_service.add_log(
-                    "camera",
-                    "CAMERA",
-                    f"DEVICE Connection failed ({ip}): {e}",
-                    "error"
-                )
+                logger.error(f"[DEVICE] Connection failed: {clean_msg}")
+                realtime_log_service.add_log("camera", "CAMERA", clean_msg, "error")
                 self.is_connected = False
-                self._last_connection_error = err_str
+                self._last_connection_error = clean_msg
                 return False
         self._last_connection_error = self._last_connection_error or "Failed after retries"
         return False
@@ -260,32 +258,59 @@ class OakCameraService:
 
     @staticmethod
     def _resolve_device_info(identifier: str, exclude_mxids: set | None = None):
-        """Resolve a database value to a current USB or network DeviceInfo."""
+        """Resolve a database value to a current USB or network DeviceInfo without false fallback."""
+        import ipaddress
         value = str(identifier or "").strip()
         excludes = exclude_mxids or set()
 
-        # Direct IP fast-path: If an explicit IPv4 address is provided (e.g., 169.254.21.191),
-        # directly construct dai.DeviceInfo without waiting for expensive UDP broadcast enumeration.
-        if value and re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", value) and value not in {"127.0.0.1", "0.0.0.0"}:
-            try:
-                return dai.DeviceInfo(value)
-            except Exception as e:
-                logger.debug(f"[DEVICE] Direct DeviceInfo creation failed, falling back to full scan: {e}")
+        # 1. USB Connection requested
+        if not value or value.lower() in {"usb", "auto"}:
+            with _depthai_device_enum_lock:
+                devices = dai.Device.getAllAvailableDevices()
+                if not devices:
+                    raise RuntimeError("No OAK camera detected over USB. Please ensure the camera is plugged into a USB port.")
 
+                unclaimed_usb = [
+                    d for d in devices
+                    if (getattr(d, "mxid", "") or "") not in excludes
+                ]
+                if unclaimed_usb:
+                    return unclaimed_usb[0]
+
+                if devices:
+                    raise RuntimeError("USB camera is already in use by another camera. Dual cameras must use different hardware or IP addresses.")
+
+                raise RuntimeError("No USB OAK camera found. Please connect an OAK camera via USB.")
+
+        # 2. Check if the value is an IP address
+        is_ip_candidate = ("." in value and any(c.isdigit() for c in value)) or value.replace(".", "").isdigit()
+        if is_ip_candidate:
+            # Validate IPv4 format strictly: 4 octets between 0 and 255
+            try:
+                ip_obj = ipaddress.IPv4Address(value)
+                valid_ip = str(ip_obj)
+            except Exception:
+                raise RuntimeError(
+                    f"Invalid IP address format: '{value}'. Expected a valid IPv4 address (e.g., 169.254.21.191)."
+                )
+
+            # Check if this IP is already occupied by the other camera
+            if valid_ip.lower() in excludes:
+                raise RuntimeError(
+                    f"IP address '{valid_ip}' is already in use by another camera. Dual cameras must have different IP addresses."
+                )
+
+            # Target ONLY this IP address via dai.DeviceInfo
+            try:
+                return dai.DeviceInfo(valid_ip)
+            except Exception as e:
+                raise RuntimeError(f"Failed to create connection for IP '{valid_ip}': {e}")
+
+        # 3. Check if value is a specific MXID or device name
         with _depthai_device_enum_lock:
             devices = dai.Device.getAllAvailableDevices()
             if not devices:
-                raise RuntimeError("No OAK device found over USB or network")
-
-            # Filter out devices already in use by another camera instance if possible
-            unclaimed = [
-                d for d in devices
-                if (getattr(d, "mxid", "") or "") not in excludes
-            ]
-            candidates = unclaimed if unclaimed else devices
-
-            if not value or value.lower() in {"usb", "auto", "127.0.0.1", "localhost"}:
-                return candidates[0]
+                raise RuntimeError(f"No OAK device found matching '{value}' over USB or network.")
 
             for d in devices:
                 mxid = getattr(d, "mxid", "") or ""
@@ -296,10 +321,12 @@ class OakCameraService:
                     desc_name = getattr(desc, "name", "") or ""
                 except Exception:
                     pass
-                if value == mxid or value == name or value == desc_name:
+                if value in {mxid, name, desc_name}:
+                    if mxid in excludes:
+                        raise RuntimeError(f"Camera hardware ({value}) is already in use by another camera.")
                     return d
 
-            return candidates[0]
+            raise RuntimeError(f"No OAK camera found matching '{value}'. Please verify the IP address or connection.")
 
     # ==================== Pipeline ====================
 
@@ -1624,7 +1651,7 @@ class OakCameraManager:
             self._default_cam_id = 1
             return inst
 
-    def get_claimed_mxids(self, exclude_id: int | None = None) -> set[str]:
+    def get_claimed_targets(self, exclude_id: int | None = None) -> set[str]:
         claimed = set()
         with self._lock:
             for cid, inst in self._instances.items():
@@ -1637,7 +1664,13 @@ class OakCameraManager:
                             claimed.add(str(mxid))
                     except Exception:
                         pass
+                cip = getattr(inst, "_configured_ip", None)
+                if cip:
+                    claimed.add(str(cip).strip().lower())
         return claimed
+
+    def get_claimed_mxids(self, exclude_id: int | None = None) -> set[str]:
+        return self.get_claimed_targets(exclude_id)
 
     async def start(self, camera, camera_id: int | None = None):
         cid = camera_id or getattr(camera, "id", None) or 1
