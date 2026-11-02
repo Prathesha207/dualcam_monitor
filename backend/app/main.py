@@ -79,6 +79,12 @@ def _ensure_tables():
                     "ADD COLUMN recording_format VARCHAR(20) DEFAULT 'MP4'"
                 )
 
+            if "clip_duration_minutes" not in existing_camera_columns:
+                camera_migrations.append(
+                    "ALTER TABLE cameras "
+                    "ADD COLUMN clip_duration_minutes INTEGER DEFAULT 1"
+                )
+
             if camera_migrations:
                 with engine.begin() as conn:
                     for sql in camera_migrations:

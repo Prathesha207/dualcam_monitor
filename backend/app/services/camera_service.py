@@ -10,7 +10,23 @@ from app.core.logger import setup_logger
 from app.core.app_paths import APP_DIR
 from app.services.realtime_log_service import realtime_log_service
 
+import re
+
 logger = setup_logger("camera-service")
+
+
+def safe_camera_name(name: str) -> str:
+    """Sanitizes camera name for OS filesystem safety, avoiding reserved names & illegal chars."""
+    if not name:
+        return "Camera"
+    # Remove characters illegal on Windows/Linux filesystems: < > : " / \ | ? * and control chars
+    cleaned = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '', str(name))
+    # Replace whitespace with underscore and strip trailing dots/spaces
+    cleaned = re.sub(r'\s+', '_', cleaned.strip()).strip('.')
+    # Windows reserved device names
+    if cleaned.upper() in {"CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"}:
+        cleaned += "_cam"
+    return cleaned[:50] or "Camera"
 
 
 # =========================================================
@@ -21,7 +37,23 @@ def create_camera(db: Session, data: CameraCreate):
     try:
         logger.info("[CREATE_CAMERA] Called")
 
-        camera = Camera(**data.model_dump())
+        clean_name = safe_camera_name(data.name)
+        # Check duplicate camera name
+        existing = db.query(Camera).filter(Camera.name.ilike(clean_name)).first()
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Camera name '{clean_name}' is already in use by another camera. Please choose a unique name."
+            )
+
+        dumped = data.model_dump()
+        dumped["name"] = clean_name
+        if "clip_duration_minutes" in dumped and dumped["clip_duration_minutes"]:
+            dumped["clip_duration_minutes"] = max(1, int(dumped["clip_duration_minutes"]))
+        else:
+            dumped["clip_duration_minutes"] = 1
+
+        camera = Camera(**dumped)
 
         camera.exposure = camera.exposure if camera.exposure is not None else 8
         camera.gain = camera.gain if camera.gain is not None else 400
@@ -69,6 +101,30 @@ def update_camera_partial(db: Session, camera_id: int, data: CameraUpdate):
             raise HTTPException(status_code=404, detail="Camera not found")
 
         update_data = data.model_dump(exclude_unset=True)
+
+        # Name sanitization, duplicate check, and lock while recording
+        if "name" in update_data and update_data["name"] is not None:
+            clean_name = safe_camera_name(update_data["name"])
+            if clean_name.lower() != camera.name.lower():
+                # Check if camera is currently recording
+                from app.services.recording_service import active_recordings
+                for sid, rec in active_recordings.items():
+                    if getattr(rec, "camera_id", None) == camera_id and getattr(rec, "is_running", False):
+                        raise HTTPException(
+                            status_code=409,
+                            detail="Cannot rename camera while recording is active. Please stop recording first."
+                        )
+                # Check duplicate
+                existing = db.query(Camera).filter(Camera.id != camera_id, Camera.name.ilike(clean_name)).first()
+                if existing:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Camera name '{clean_name}' is already in use by another camera. Please choose a unique name."
+                    )
+            update_data["name"] = clean_name
+
+        if "clip_duration_minutes" in update_data and update_data["clip_duration_minutes"] is not None:
+            update_data["clip_duration_minutes"] = max(1, int(update_data["clip_duration_minutes"]))
 
         for key, value in update_data.items():
             setattr(camera, key, value)

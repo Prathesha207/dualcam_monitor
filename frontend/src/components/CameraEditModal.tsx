@@ -15,8 +15,9 @@ import {
   AlertCircle,
   Power,
   Radio,
+  Lock,
 } from 'lucide-react';
-import { Modal, Button } from './ui';
+import { Modal, Button, NumberStepper } from './ui';
 
 interface CameraEditModalProps {
   isOpen: boolean;
@@ -24,6 +25,8 @@ interface CameraEditModalProps {
   camera: CameraConfig | null;
   onSave: (updated: CameraConfig) => Promise<void> | void;
   onDelete?: (id: number) => Promise<void> | void;
+  isRecording?: boolean;
+  existingCameras?: CameraConfig[];
 }
 
 interface HwDevice {
@@ -40,11 +43,14 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
   camera,
   onSave,
   onDelete,
+  isRecording = false,
+  existingCameras = [],
 }) => {
   const [activeTab, setActiveTab] = useState<'stream' | 'image'>('stream');
 
   // Camera parameters
   const [name, setName] = useState('');
+  const [clipDurationMinutes, setClipDurationMinutes] = useState(1);
   const [connectionType, setConnectionType] = useState<'usb' | 'ip'>('usb');
   const [ipAddress, setIpAddress] = useState('');
   const [resolution, setResolution] = useState<'1920x1080' | '1280x720'>('1920x1080');
@@ -78,6 +84,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
     }
 
     setName(camera.sourceName || '');
+    setClipDurationMinutes(camera.clipDurationMinutes || 1);
     const isIp = Boolean(camera.ipAddress && camera.ipAddress.includes('.') && !camera.ipAddress.toLowerCase().includes('usb'));
     setConnectionType(isIp ? 'ip' : 'usb');
     setIpAddress(camera.ipAddress || '');
@@ -166,6 +173,24 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
     setIsSaving(true);
     setErrorMessage(null);
 
+    const cleanName = name.trim();
+    if (!cleanName) {
+      setErrorMessage('Camera name cannot be empty.');
+      setIsSaving(false);
+      return;
+    }
+
+    if (
+      existingCameras &&
+      existingCameras.some(
+        (c) => c.id !== camera.id && c.sourceName?.trim().toLowerCase() === cleanName.toLowerCase()
+      )
+    ) {
+      setErrorMessage(`Camera name "${cleanName}" is already in use by another camera. Please choose a unique name.`);
+      setIsSaving(false);
+      return;
+    }
+
     const chosenIp =
       connectionType === 'usb'
         ? (availableDevices.find((d) => d.is_usb)?.ip_or_id || ipAddress || 'usb')
@@ -174,12 +199,13 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
     try {
       const updated: CameraConfig = {
         ...camera,
-        sourceName: name.trim() || camera.sourceName,
+        sourceName: cleanName,
         ipAddress: chosenIp,
         resolution,
         targetFps,
         recordingFormat,
         recordingVideoPath: storagePath.trim() || undefined,
+        clipDurationMinutes: Math.max(1, clipDurationMinutes || 1),
         controlMode,
         is_enabled: isEnabled,
         exposure,
@@ -389,6 +415,31 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
                 </div>
               </div>
 
+              {/* Clip Split Interval Stepper */}
+              <div className="sm:col-span-2 space-y-1 pt-2 border-t border-[var(--border-color)]/60">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider block">
+                      Clip Split Interval
+                    </span>
+                    <span className="text-[10px] text-[var(--text-muted)]">
+                      Saves continuous video into separate clips. Balance minutes are safely saved when stopped.
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <NumberStepper
+                      value={clipDurationMinutes}
+                      onChange={(val) => setClipDurationMinutes(val)}
+                      min={1}
+                      max={180}
+                      step={1}
+                      size="sm"
+                    />
+                    <span className="text-xs font-mono font-bold text-[var(--text-secondary)]">min</span>
+                  </div>
+                </div>
+              </div>
+
               {/* Output Storage Directory */}
               <div className="sm:col-span-2 space-y-1.5 pt-2 border-t border-[var(--border-color)]/60">
                 <div className="flex items-center justify-between">
@@ -483,16 +534,29 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
             {/* Camera Label & Control Mode */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-1">
-                  Camera Label
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                    Camera Label
+                  </label>
+                  {isRecording && (
+                    <span className="text-[10px] text-amber-500 font-bold flex items-center gap-1">
+                      <Lock className="w-3 h-3" /> Locked during recording
+                    </span>
+                  )}
+                </div>
                 <input
                   type="text"
                   value={name}
+                  disabled={isRecording}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g., Dock Inspection OAK-D"
-                  className="w-full h-9 px-3 text-xs rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-pond)]"
+                  placeholder="e.g., Front_Door"
+                  className={`w-full h-9 px-3 text-xs rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-pond)] ${
+                    isRecording ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
                 />
+                <p className="text-[10px] text-[var(--text-muted)] mt-1 truncate">
+                  Recordings folder: <span className="font-mono text-[var(--accent-pond)]">{name.trim().replace(/\s+/g, '_') || 'Camera'}/</span>
+                </p>
               </div>
 
               <div>

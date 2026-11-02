@@ -1265,6 +1265,9 @@ class OakCameraService:
         root_path: str | None = None,
         recording_format: str | None = None,
         camera_settings: dict | None = None,
+        camera_id: int | None = None,
+        camera_name: str | None = None,
+        clip_duration_minutes: int | None = None,
     ) -> str:
         from app.services.recording_service import start_recording as _start
 
@@ -1286,6 +1289,27 @@ class OakCameraService:
         resolved_path = root_path or self._resolve_recording_path()
         settings_snap = camera_settings or self._recording_settings_snapshot()
 
+        cid = camera_id or self._active_camera_id or 1
+        cname = camera_name
+        clip_mins = clip_duration_minutes
+
+        if not cname or clip_mins is None:
+            try:
+                from app.core.database import SessionLocal
+                from app.models.camera_model import Camera
+                with SessionLocal() as db_session:
+                    cam_row = db_session.query(Camera).filter(Camera.id == cid).first()
+                    if cam_row:
+                        if not cname:
+                            cname = cam_row.name
+                        if clip_mins is None:
+                            clip_mins = getattr(cam_row, "clip_duration_minutes", 1) or 1
+            except Exception:
+                pass
+
+        cname = cname or f"Camera_{cid}"
+        clip_mins = clip_mins or 1
+
         rec_path = _start(
             session_id=session_id,
             width=width,
@@ -1294,10 +1318,13 @@ class OakCameraService:
             root_path=resolved_path,
             recording_format=resolved_format,
             camera_settings=settings_snap,
+            camera_id=cid,
+            camera_name=cname,
+            clip_duration_minutes=clip_mins,
         )
         from app.services.recording_service import active_recordings
         self._active_recording = active_recordings.get(session_id)
-        logger.info(f"[RECORD] Active recording initialized: {rec_path} (format={resolved_format})")
+        logger.info(f"[RECORD] Active recording initialized: {rec_path} (camera={cname}, format={resolved_format}, split={clip_mins}m)")
         return rec_path
 
     def _recording_settings_snapshot(self) -> dict:

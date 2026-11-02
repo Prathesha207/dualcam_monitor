@@ -60,6 +60,9 @@ def start_recording(data: StartRecordingRequest, db: Session = Depends(get_db)):
             from app.core.app_paths import get_configured_storage_dir
             custom_root_path = str(get_configured_storage_dir())
 
+        camera_name = camera_config.name if camera_config else f"Camera_{cam_id or 1}"
+        clip_mins = data.clip_duration_minutes or getattr(camera_config, "clip_duration_minutes", 1) or 1
+
         path = cam_inst.start_recording(
             session_id=data.session_id,
             width=width,
@@ -68,6 +71,9 @@ def start_recording(data: StartRecordingRequest, db: Session = Depends(get_db)):
             root_path=custom_root_path,
             recording_format=data.recording_format or camera_config.recording_format,
             camera_settings=cam_inst._recording_settings_snapshot(),
+            camera_id=cam_id or camera_config.id,
+            camera_name=camera_name,
+            clip_duration_minutes=clip_mins,
         )
         return {
             "status": "recording",

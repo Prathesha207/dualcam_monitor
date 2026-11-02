@@ -14,7 +14,7 @@ import {
   FolderOpen,
   HardDrive,
 } from 'lucide-react';
-import { Modal, Button } from './ui';
+import { Modal, Button, NumberStepper } from './ui';
 import { cameraService, type CameraData } from './service/cameraService';
 
 interface CameraSettingsModalProps {
@@ -315,6 +315,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
         auto_exposure: false,
         recording_format: localConfig.recordingFormat || 'MP4',
         recording_video_path: storagePath || undefined,
+        clip_duration_minutes: localConfig.clipDurationMinutes || 1,
       };
       const saved = await cameraService.createCamera(payload);
       const updated: CameraConfig = {
@@ -323,6 +324,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
         sourceName: name,
         ipAddress,
         recordingVideoPath: storagePath || localConfig.recordingVideoPath,
+        clipDurationMinutes: localConfig.clipDurationMinutes || 1,
         connected: true,
       };
       setLocalConfig(updated);
@@ -565,6 +567,33 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                         </button>
                       );
                     })}
+                  </div>
+                </div>
+
+                {/* Clip Split Interval Stepper */}
+                <div className="sm:col-span-2 space-y-1 pt-1.5 border-t border-[var(--border-color)]/60">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-[var(--text-secondary)] block">
+                        Clip Split Interval
+                      </span>
+                      <span className="text-[10px] text-[var(--text-muted)]">
+                        Saves continuous video into separate clips. Balance minutes are safely saved when stopped.
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <NumberStepper
+                        value={localConfig.clipDurationMinutes || 1}
+                        onChange={(val) =>
+                          setLocalConfig({ ...localConfig, clipDurationMinutes: val })
+                        }
+                        min={1}
+                        max={180}
+                        step={1}
+                        size="sm"
+                      />
+                      <span className="text-xs font-mono font-bold text-[var(--text-secondary)]">min</span>
+                    </div>
                   </div>
                 </div>
 

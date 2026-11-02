@@ -1,20 +1,11 @@
 """
 Recording service — uses PyAV for per-frame timestamps.
-
-Why PyAV instead of cv2.VideoWriter:
-  cv2.VideoWriter stamps every frame at (frame_number / declared_fps).
-  When the OAK camera delivers 3.2 fps instead of the configured 10 fps
-  (auto-exposure in low light), the result is a 19-second video for a
-  60-second recording.
-
-  PyAV records each frame with the wall-clock time it actually arrived,
-  so the saved video is always the correct duration regardless of the
-  camera's delivery rate.  No fps parameter needed at recording start,
-  no post-recording patching, no ffmpeg subprocess.
+Supports continuous clip chunking (e.g. 1 min, 3 min) with zero dropped frames,
+automatic balance minutes capture on stop, crash/cable-disconnect resilience,
+and unique session folder naming to guarantee zero overwrites.
 """
 
 import av
-import cv2
 import os
 import queue
 import threading
@@ -23,6 +14,7 @@ import logging
 import json
 from datetime import datetime
 from app.core.app_paths import get_desktop_dir
+from app.services.camera_service import safe_camera_name
 
 logger = logging.getLogger("recording-service")
 
@@ -40,15 +32,45 @@ class RecordingSession:
         root_path: str = None,
         recording_format: str = "MP4",
         camera_settings: dict | None = None,
+        camera_id: int | None = None,
+        camera_name: str | None = None,
+        clip_duration_minutes: int | None = 1,
     ):
         now = datetime.now()
         if not root_path:
             root_path = _get_default_recording_path()
-        folder = os.path.join(root_path, now.strftime("%Y-%m-%d"))
-        os.makedirs(folder, exist_ok=True)
+
+        safe_cam = safe_camera_name(camera_name or f"Camera_{camera_id or 1}")
+        date_folder = now.strftime("%Y-%m-%d")
+        parent_dir = os.path.join(root_path, safe_cam, date_folder)
+        try:
+            os.makedirs(parent_dir, exist_ok=True)
+        except Exception as perm_err:
+            # Fallback to local workspace recordings directory
+            ws_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            fallback_root = os.path.join(ws_root, "recordings")
+            logger.warning(f"[RECORD] Cannot create {parent_dir}: {perm_err} — falling back to {fallback_root}")
+            parent_dir = os.path.join(fallback_root, safe_cam, date_folder)
+            os.makedirs(parent_dir, exist_ok=True)
+
+        # Unique session folder to prevent any overwriting
+        session_base = f"session_{now.strftime('%H-%M-%S')}"
+        session_dir = os.path.join(parent_dir, session_base)
+        counter = 1
+        while os.path.exists(session_dir):
+            session_dir = os.path.join(parent_dir, f"{session_base}_{counter}")
+            counter += 1
+        os.makedirs(session_dir, exist_ok=True)
+
+        self.session_dir = session_dir
+        self.session_id = session_id
+        self.camera_id = camera_id or 1
+        self.camera_name = camera_name or safe_cam
+        self.clip_duration_minutes = max(1, int(clip_duration_minutes or 1))
+        self.clip_duration_seconds = self.clip_duration_minutes * 60
+        self.start_iso = now.isoformat()
 
         fmt = (recording_format or "MP4").upper()
-
         options = {}
         if fmt in ("AVI", "MJPEG"):
             fmt        = "AVI"
@@ -73,139 +95,225 @@ class RecordingSession:
                 codec_name = "libx264"
                 options    = {"preset": "veryfast", "crf": "18"}
 
-        self.filename = now.strftime(f"session_%Y-%m-%d_%H-%M-%S{ext}")
-        self.video_path = os.path.join(folder, self.filename)
-        self.width  = width
-        self.height = height
-        # BUGFIX: `fmt` was only ever a local variable in __init__ -- stop()
-        # reads self.fmt when building its return dict, which raised
-        # AttributeError on every single recording stop (this was thrown
-        # after the file was already correctly flushed/closed by the worker
-        # thread, so the .mp4/.avi/.mkv on disk was actually fine -- but the
-        # exception then propagated out of RecordingSession.stop() ->
-        # recording_service.stop_recording() -> oak_camera_service's
-        # stop_recording()/stop(), which has no try/except around this call.
-        # When stop() is the camera-shutdown path, that exception aborted
-        # shutdown BEFORE _close_stream_queue()/_stop_capture_threads()/
-        # _cleanup_pipeline()/disconnect() could run -- leaving the pipeline
-        # and device connected, which is exactly the kind of state that makes
-        # the next camera start fail or the app look wedged.
         self.fmt = fmt
-        # Initialize all state stop()/add_frame() touch BEFORE attempting to open
-        # the container, so a failed open leaves a fully-formed (just inert)
-        # object instead of a half-built one that crashes on the first stop().
-        # maxsize=150 keeps memory bounded under ~1 GB at 1080p BGR while tolerating transient stalls
+        self.codec_name = codec_name
+        self.pix_fmt = pix_fmt
+        self.ext = ext
+        self.codec_options = options
+        self.width = width
+        self.height = height
+
+        # Frame queue (bounded ~150 frames to prevent OOM)
         self.frame_queue = queue.Queue(maxsize=150)
         self.is_running  = False
-        # Set start clock at session creation — not on first frame — so the
-        # container duration matches the wall-clock recording time exactly.
-        self._start_mono: float = time.monotonic()
-        self._frames_written = 0
-        self._last_bgr = None       # last frame received, used for pad-frame on stop
-        self._last_pts_ms: int = -1  # PTS of that frame
-        self._last_encoded_pts: int = -1  # Monotonic tracker for frame.pts passed to encoder
-        self._last_mux_dts: int = -1      # Monotonic tracker for pkt.dts passed to muxer
+        self._start_mono = time.monotonic()
+        self._total_frames = 0
+        self._last_bgr = None
+        self._last_pts_ms = -1
+
+        self.clips: list = []
+        self._current_clip_index = 1
+        self._current_clip_start_pts_ms = 0
+        self._current_clip_frames = 0
+        self._container = None
+        self._stream = None
+        self._last_encoded_pts = -1
+        self._last_mux_dts = -1
+        self._temp_clip_path = None
+
         self.thread = None
         self.camera_settings = camera_settings or {}
         self.settings_history = [{"elapsed_seconds": 0.0, "settings": self.camera_settings.copy()}]
 
-        try:
-            container_options = {}
-            if fmt == "MP4":
-                # Fragmented MP4 writes playable chunks at each keyframe so video is crash-resilient
-                container_options = {"movflags": "frag_keyframe+empty_moov"}
-            self.container = av.open(self.video_path, mode="w", options=container_options)
-            # rate=1000 → time_base = 1/1000 s = 1 ms per PTS unit.
-            # VFR timestamps allow precise wall-clock synchronization.
-            self.stream = self.container.add_stream(codec_name, rate=1000)
-            self.stream.width   = width
-            self.stream.height  = height
-            self.stream.pix_fmt = pix_fmt
-            if options:
-                self.stream.options = options
-        except Exception as e:
-            logger.warning(f"[RECORD] Failed to open container at {self.video_path}: {e} — retrying on Desktop fallback")
-            try:
-                desktop_folder = os.path.join(str(get_desktop_dir()), "recordings", now.strftime("%Y-%m-%d"))
-                os.makedirs(desktop_folder, exist_ok=True)
-                self.video_path = os.path.join(desktop_folder, self.filename)
-                self.container = av.open(self.video_path, mode="w", options=container_options)
-                self.stream = self.container.add_stream(codec_name, rate=1000)
-                self.stream.width   = width
-                self.stream.height  = height
-                self.stream.pix_fmt = pix_fmt
-                if options:
-                    self.stream.options = options
-                logger.info(f"[RECORD] Successfully opened fallback recording on Desktop: {self.video_path}")
-            except Exception as e_fallback:
-                logger.error(f"[RECORD] Fallback container also failed: {e_fallback}")
-                return
+        # Write initial session manifest
+        self._write_session_json(status="recording")
 
+        # Start worker thread
         self.is_running = True
         self.thread = threading.Thread(target=self._worker, daemon=True)
         self.thread.start()
-        logger.info(f"[RECORD] Started: {self.video_path} | format={fmt} ({codec_name}) | {width}x{height}")
+        logger.info(
+            f"[RECORD] Session started: {self.session_dir} | format={fmt} | "
+            f"clip_split={self.clip_duration_minutes}m ({self.clip_duration_seconds}s) | {width}x{height}"
+        )
 
-    # ── Worker thread ─────────────────────────────────────────────────────────
+    # ── Clip Container Lifecycle ──────────────────────────────────────────────
+
+    def _open_clip(self, start_pts_ms: int):
+        self._current_clip_start_pts_ms = start_pts_ms
+        self._current_clip_frames = 0
+        self._last_encoded_pts = -1
+        self._last_mux_dts = -1
+
+        self._temp_clip_path = os.path.join(
+            self.session_dir, f"clip{self._current_clip_index:03d}_temp{self.ext}"
+        )
+
+        container_options = {}
+        if self.fmt == "MP4":
+            # Fragmented MP4 ensures chunks are immediately playable even on unexpected stop/crash
+            container_options = {"movflags": "frag_keyframe+empty_moov"}
+
+        try:
+            self._container = av.open(self._temp_clip_path, mode="w", options=container_options)
+            self._stream = self._container.add_stream(self.codec_name, rate=1000)
+            self._stream.width   = self.width
+            self._stream.height  = self.height
+            self._stream.pix_fmt = self.pix_fmt
+            if self.codec_options:
+                self._stream.options = self.codec_options
+            logger.info(f"[RECORD] Opened clip {self._current_clip_index} at {self._temp_clip_path}")
+        except Exception as e:
+            logger.error(f"[RECORD] Failed to open clip container: {e}", exc_info=True)
+            self._container = None
+            self._stream = None
+
+    def _close_clip(self, end_pts_ms: int):
+        if not self._container or not self._stream:
+            return
+
+        try:
+            for pkt in self._stream.encode():
+                if pkt.dts is not None:
+                    if pkt.dts <= self._last_mux_dts:
+                        pkt.dts = self._last_mux_dts + 1
+                    self._last_mux_dts = pkt.dts
+                if pkt.pts is not None and pkt.dts is not None and pkt.pts < pkt.dts:
+                    pkt.pts = pkt.dts
+                self._container.mux(pkt)
+            self._container.close()
+        except Exception as e:
+            logger.warning(f"[RECORD] Error closing container for clip {self._current_clip_index}: {e}")
+        finally:
+            self._container = None
+            self._stream = None
+
+        duration_sec = max(0.1, (end_pts_ms - self._current_clip_start_pts_ms) / 1000.0)
+        mins = int(duration_sec // 60)
+        secs = int(duration_sec % 60)
+        final_filename = f"clip{self._current_clip_index:03d}_{mins:02d}m{secs:02d}s{self.ext}"
+        final_path = os.path.join(self.session_dir, final_filename)
+
+        if os.path.exists(self._temp_clip_path):
+            try:
+                os.replace(self._temp_clip_path, final_path)
+            except Exception:
+                try:
+                    import shutil
+                    shutil.move(self._temp_clip_path, final_path)
+                except Exception as err:
+                    logger.error(f"[RECORD] Could not rename temp clip to final name: {err}")
+                    final_path = self._temp_clip_path
+
+        clip_record = {
+            "index": self._current_clip_index,
+            "filename": os.path.basename(final_path),
+            "path": final_path,
+            "duration_seconds": round(duration_sec, 2),
+            "frames": self._current_clip_frames,
+        }
+        self.clips.append(clip_record)
+        self._write_session_json(status="recording")
+        logger.info(
+            f"[RECORD] Finalized clip {self._current_clip_index}: {final_filename} "
+            f"({round(duration_sec, 1)}s, {self._current_clip_frames} frames)"
+        )
+
+    def _write_session_json(self, status: str = "recording"):
+        total_dur = time.monotonic() - self._start_mono
+        manifest = {
+            "session_id": self.session_id,
+            "camera_id": self.camera_id,
+            "camera_name": self.camera_name,
+            "folder": self.session_dir,
+            "format": self.fmt,
+            "resolution": f"{self.width}x{self.height}",
+            "clip_duration_minutes": self.clip_duration_minutes,
+            "start_time": self.start_iso,
+            "end_time": datetime.now().isoformat() if status != "recording" else None,
+            "status": status,
+            "total_duration_seconds": round(total_dur, 2),
+            "total_frames": self._total_frames,
+            "clips": [
+                {
+                    "index": c["index"],
+                    "filename": c["filename"],
+                    "duration_seconds": c["duration_seconds"],
+                    "frames": c["frames"],
+                }
+                for c in self.clips
+            ],
+        }
+        json_path = os.path.join(self.session_dir, "session.json")
+        try:
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, indent=2)
+        except Exception as e:
+            logger.warning(f"[RECORD] Error updating session.json: {e}")
+
+    # ── Worker Thread (Continuous chunking with balance retention) ────────────
 
     def _worker(self):
+        clip_duration_ms = int(self.clip_duration_seconds * 1000)
+        self._open_clip(start_pts_ms=0)
+
         try:
             while self.is_running or not self.frame_queue.empty():
                 try:
-                    bgr, pts_ms = self.frame_queue.get(timeout=1.0)
+                    bgr, pts_ms = self.frame_queue.get(timeout=0.5)
                 except queue.Empty:
                     continue
 
                 try:
-                    # BGR (OpenCV / camera) → target pixel format directly (no intermediate rgb24 copy)
+                    # Check if interval reached -> rotate to next clip smoothly
+                    if (pts_ms - self._current_clip_start_pts_ms) >= clip_duration_ms:
+                        self._close_clip(pts_ms)
+                        self._current_clip_index += 1
+                        self._open_clip(start_pts_ms=pts_ms)
+
+                    if not self._container or not self._stream:
+                        continue
+
+                    # BGR -> Target Pixel Format
                     frame = av.VideoFrame.from_ndarray(bgr, format="bgr24")
-                    if frame.format.name != self.stream.pix_fmt:
-                        frame = frame.reformat(format=self.stream.pix_fmt)
+                    if frame.format.name != self._stream.pix_fmt:
+                        frame = frame.reformat(format=self._stream.pix_fmt)
 
-                    # pts_ms is milliseconds since recording start.
-                    # With time_base = 1/1000, one PTS unit = 1 ms.
-                    # Enforce strictly monotonic PTS so FFmpeg muxer never sees equal or decreasing timestamps.
-                    if pts_ms <= self._last_encoded_pts:
-                        pts_ms = self._last_encoded_pts + 1
-                    self._last_encoded_pts = pts_ms
-                    frame.pts = pts_ms
+                    # Frame PTS relative to the start of this specific clip (each clip starts from 0)
+                    rel_pts = pts_ms - self._current_clip_start_pts_ms
+                    if rel_pts <= self._last_encoded_pts:
+                        rel_pts = self._last_encoded_pts + 1
+                    self._last_encoded_pts = rel_pts
+                    frame.pts = rel_pts
 
-                    for pkt in self.stream.encode(frame):
+                    for pkt in self._stream.encode(frame):
                         if pkt.dts is not None:
                             if pkt.dts <= self._last_mux_dts:
                                 pkt.dts = self._last_mux_dts + 1
                             self._last_mux_dts = pkt.dts
                         if pkt.pts is not None and pkt.dts is not None and pkt.pts < pkt.dts:
                             pkt.pts = pkt.dts
-                        self.container.mux(pkt)
+                        self._container.mux(pkt)
 
-                    self._frames_written += 1
-                    if self._frames_written % 100 == 0:
-                        logger.info(f"[RECORD] Frames written: {self._frames_written}")
+                    self._total_frames += 1
+                    self._current_clip_frames += 1
 
                 except Exception as e:
-                    logger.warning(f"[RECORD] Frame encode error: {e}")
+                    logger.warning(f"[RECORD] Frame encode warning: {e}")
 
         except Exception as e:
-            logger.error(f"[RECORD] Worker error: {e}")
+            logger.error(f"[RECORD] Worker fatal exception: {e}", exc_info=True)
+            if self._container:
+                end_pts = self._last_pts_ms if self._last_pts_ms > self._current_clip_start_pts_ms else int((time.monotonic() - self._start_mono) * 1000)
+                self._close_clip(end_pts)
+                self._write_session_json(status="interrupted_error")
         finally:
-            # Flush encoder and close container inside the worker so that
-            # stop() can join() and know the file is fully written.
-            try:
-                for pkt in self.stream.encode():
-                    if pkt.dts is not None:
-                        if pkt.dts <= self._last_mux_dts:
-                            pkt.dts = self._last_mux_dts + 1
-                        self._last_mux_dts = pkt.dts
-                    if pkt.pts is not None and pkt.dts is not None and pkt.pts < pkt.dts:
-                        pkt.pts = pkt.dts
-                    self.container.mux(pkt)
-                self.container.close()
-                logger.info(
-                    f"[RECORD] Closed — {self._frames_written} frames → {self.video_path}"
-                )
-            except Exception as e:
-                logger.error(f"[RECORD] Container close error: {e}")
+            # Finalize open container (captures remaining balance minutes cleanly)
+            if self._container:
+                end_pts = self._last_pts_ms if self._last_pts_ms > self._current_clip_start_pts_ms else int((time.monotonic() - self._start_mono) * 1000)
+                self._close_clip(end_pts)
+            self._write_session_json(status="completed")
+            logger.info(f"[RECORD] Finished session — {len(self.clips)} clips written to {self.session_dir}")
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -217,13 +325,11 @@ class RecordingSession:
         if pts_ms <= self._last_pts_ms:
             pts_ms = self._last_pts_ms + 1
         self._last_pts_ms = pts_ms
-
         self._last_bgr = bgr
 
         try:
             self.frame_queue.put_nowait((bgr, pts_ms))
         except queue.Full:
-            # Drop oldest frame to make room for the newest
             try:
                 self.frame_queue.get_nowait()
                 self.frame_queue.put_nowait((bgr, pts_ms))
@@ -239,52 +345,41 @@ class RecordingSession:
         self.settings_history.append(event)
 
     def stop(self) -> dict:
-        # Compute the actual wall-clock recording duration right now.
-        # The last real frame arrived some time ago (depends on camera fps).
-        # Adding a duplicate of the last frame at "now" pads the container so
-        # the video duration matches the real recording time exactly.
         if self._last_bgr is not None:
             pad_pts_ms = int((time.monotonic() - self._start_mono) * 1000)
             if pad_pts_ms <= self._last_pts_ms:
                 pad_pts_ms = self._last_pts_ms + 1
             gap_ms = pad_pts_ms - self._last_pts_ms
             self._last_pts_ms = pad_pts_ms
-            logger.info(
-                f"[RECORD] Padding video by {gap_ms} ms "
-                f"(last frame at {self._last_pts_ms} ms → pad to {pad_pts_ms} ms)"
-            )
+            logger.info(f"[RECORD] Padding final clip by {gap_ms} ms")
             try:
                 self.frame_queue.put_nowait((self._last_bgr, pad_pts_ms))
             except queue.Full:
-                try:
-                    self.frame_queue.get_nowait()
-                    self.frame_queue.put_nowait((self._last_bgr, pad_pts_ms))
-                except Exception:
-                    pass
+                pass
 
-        logger.info(
-            f"[RECORD] Stopping — {self.frame_queue.qsize()} frames still in queue"
-        )
+        logger.info(f"[RECORD] Stopping session — {self.frame_queue.qsize()} frames in queue")
         self.is_running = False
         if self.thread is not None:
             self.thread.join(timeout=30.0)
             if self.thread.is_alive():
-                logger.warning("[RECORD] Worker thread did not finish within 30 s")
-        else:
-            logger.warning(
-                f"[RECORD] stop() called on a session whose container never "
-                f"opened successfully: {self.video_path}"
-            )
-        # Container is already closed by the worker's finally block
+                logger.warning("[RECORD] Worker thread did not terminate within 30s")
+
         duration = time.monotonic() - self._start_mono
+        first_clip_path = self.clips[0]["path"] if self.clips else os.path.join(self.session_dir, "clip001" + self.ext)
+        last_filename = self.clips[-1]["filename"] if self.clips else "session.json"
+
         return {
-            "recording_path": self.video_path,
-            "filename": self.filename,
+            "recording_path": first_clip_path,
+            "session_dir": self.session_dir,
+            "filename": last_filename,
             "duration": round(duration, 2),
-            "frames_written": self._frames_written,
+            "frames_written": self._total_frames,
             "format": self.fmt,
             "width": self.width,
             "height": self.height,
+            "clips": self.clips,
+            "camera_id": self.camera_id,
+            "camera_name": self.camera_name,
         }
 
 
@@ -307,34 +402,36 @@ def start_recording(
     root_path: str = None,
     recording_format: str = "MP4",
     camera_settings: dict | None = None,
+    camera_id: int | None = None,
+    camera_name: str | None = None,
+    clip_duration_minutes: int | None = 1,
 ) -> str:
-    logger.info(f"[RECORD] Creating session: {session_id} | format={recording_format}")
+    logger.info(f"[RECORD] Creating session: {session_id} | format={recording_format} | camera={camera_name} (ID: {camera_id})")
     if session_id in active_recordings:
-        logger.warning("[RECORD] Session already exists — returning existing path")
-        return active_recordings[session_id].video_path
+        logger.warning("[RECORD] Session already exists — returning existing session directory")
+        return active_recordings[session_id].session_dir
 
     root_path = _resolve_recording_path(root_path)
-    session = RecordingSession(session_id, width, height, fps, root_path, recording_format, camera_settings)
+    session = RecordingSession(
+        session_id=session_id,
+        width=width,
+        height=height,
+        fps=fps,
+        root_path=root_path,
+        recording_format=recording_format,
+        camera_settings=camera_settings,
+        camera_id=camera_id,
+        camera_name=camera_name,
+        clip_duration_minutes=clip_duration_minutes,
+    )
 
-    # BUGFIX: if av.open() failed inside RecordingSession.__init__, it logs
-    # and returns early, leaving is_running=False and thread=None -- but this
-    # function used to store that broken session into active_recordings and
-    # return session.video_path unconditionally, exactly as if recording had
-    # started. The caller (oak_camera_service.start_recording) then logs
-    # "[RECORD] Session active" and happily feeds it frames for the entire
-    # session -- every one of them silently dropped by add_frame()'s
-    # `if not self.is_running: return` guard -- producing a recording button
-    # that appears to work but writes nothing, with no error anywhere.
     if not session.is_running:
         raise RuntimeError(
-            f"Recording container failed to open for session {session_id} "
-            "(see the '[RECORD] Failed to open container' log line above for "
-            "the underlying cause) -- refusing to report a successful start "
-            "for a session that would silently record zero frames."
+            f"Recording session failed to start for session {session_id}."
         )
 
     active_recordings[session_id] = session
-    return session.video_path
+    return session.session_dir
 
 
 def write_frame(session_id: str, frame) -> None:

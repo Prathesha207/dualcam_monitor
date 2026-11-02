@@ -94,6 +94,7 @@ export default function App() {
           is_enabled: c.is_enabled !== false,
           recordingFormat: (c.recording_format as any) || 'MP4',
           recordingVideoPath: c.recording_video_path || null,
+          clipDurationMinutes: c.clip_duration_minutes ?? 1,
         }));
         setCameras(mapped);
       }
@@ -335,6 +336,7 @@ export default function App() {
           control_mode: updated.controlMode,
           recording_format: updated.recordingFormat,
           recording_video_path: updated.recordingVideoPath,
+          clip_duration_minutes: updated.clipDurationMinutes,
         });
         showToast('success', `${updated.sourceName} settings updated`);
         addLog(`Updated camera ${updated.id} parameters in database`, 'info');
@@ -561,6 +563,8 @@ export default function App() {
         isOpen={Boolean(editCamera)}
         onClose={() => setEditCamera(null)}
         camera={editCamera}
+        isRecording={Boolean(editCamera?.id && recordingStates[editCamera.id]?.isRecording)}
+        existingCameras={cameras}
         onSave={handleSaveEditedCamera}
         onDelete={handleDeleteCamera}
       />
