@@ -379,7 +379,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      maxWidth="2xl"
+      maxWidth="xl"
       icon={<Camera className="w-4 h-4 text-[var(--accent-pond)]" />}
       title="Camera & Stream Settings"
       description="Manage connected cameras and video pipeline"
@@ -641,26 +641,26 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                 />
               </div>
 
-              {/* Interface Details: Compact */}
+              {/* Interface Details: USB or IP on EXACT SAME LINE with Scan */}
               {newType === 'usb' ? (
-                <div className="p-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] flex items-center justify-between gap-2.5">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div className="w-6 h-6 rounded-md bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] shrink-0">
+                <div className="p-2.5 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] flex items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <div className="w-7 h-7 rounded-lg bg-[var(--bg-card)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] shrink-0">
                       <Usb className="w-3.5 h-3.5" />
                     </div>
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       {detectedUsb ? (
                         <>
                           <div className="flex items-center gap-1.5">
                             <span className="text-xs font-bold text-[var(--text-primary)] truncate">
                               {detectedUsb.name}
                             </span>
-                            <span className="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                            <span className="px-1.5 py-0.2 rounded text-[8px] font-mono font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
                               READY
                             </span>
                           </div>
-                          <span className="text-[9px] text-[var(--text-muted)] font-mono block truncate">
-                            ID: {detectedUsb.mxid}
+                          <span className="text-[10px] text-[var(--text-muted)] font-mono block truncate">
+                            ID: {detectedUsb.mxid || detectedUsb.ip_or_id}
                           </span>
                         </>
                       ) : (
@@ -668,62 +668,55 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                           <span className="text-xs font-bold text-[var(--text-primary)] block">
                             No USB Device Detected
                           </span>
-                          <span className="text-[9px] text-[var(--text-muted)]">
-                            Plug in camera and scan
+                          <span className="text-[10px] text-[var(--text-muted)]">
+                            Plug in camera and click Scan
                           </span>
                         </div>
                       )}
                     </div>
                   </div>
 
-                  <Button
-                    variant="secondary"
-                    size="sm"
+                  <button
+                    type="button"
                     disabled={isScanning}
-                    onClick={handleDetectUsb}
-                    className="h-6 px-2 text-[11px] font-bold shrink-0"
+                    onClick={scanUsbDevices}
+                    title="Scan for connected USB cameras"
+                    className="inline-flex items-center justify-center gap-1.5 h-9 px-3.5 rounded-xl bg-[var(--bg-card)] hover:bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] hover:border-[var(--accent-pond)] text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95 disabled:opacity-50"
                   >
-                    {isScanning ? (
-                      <Loader2 className="w-3 h-3 animate-spin text-[var(--accent-pond)]" />
-                    ) : (
-                      'Scan'
-                    )}
-                  </Button>
+                    <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin' : ''}`} />
+                    <span>Scan</span>
+                  </button>
                 </div>
               ) : (
-                <div>
-                  <div className="flex items-center justify-between mb-0.5">
-                    <label className="text-[10px] font-bold text-[var(--text-secondary)]">
-                      IP Address / Hostname
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                      Device IP Address / Hostname
                     </label>
-                    <button
-                      type="button"
-                      disabled={isScanning}
-                      onClick={scanUsbDevices}
-                      className="text-[10px] font-semibold text-[var(--accent-pond)] hover:underline flex items-center gap-1 cursor-pointer"
-                    >
-                      <RefreshCw className={`w-3 h-3 ${isScanning ? 'animate-spin' : ''}`} />
-                      <span>Scan Network</span>
-                    </button>
+                    {hwDevices.length > 0 && (
+                      <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                        {hwDevices.length} device{hwDevices.length > 1 ? 's' : ''} detected
+                      </span>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 w-full">
                     <input
                       type="text"
                       placeholder="e.g., 169.254.21.191"
                       value={newIp}
                       onChange={(e) => setNewIp(e.target.value)}
-                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-pond)] focus:bg-[var(--bg-card)] transition-all"
+                      className="flex-1 min-w-0 h-9 px-3 rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-xs font-mono font-medium text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-pond)]"
                     />
-                    <Button
-                      variant="secondary"
-                      size="sm"
+                    <button
+                      type="button"
                       disabled={isScanning}
                       onClick={scanUsbDevices}
-                      className="h-8 px-3 text-xs font-bold shrink-0 cursor-pointer"
+                      title="Scan for connected hardware cameras"
+                      className="inline-flex items-center justify-center gap-1.5 h-9 px-3.5 rounded-xl bg-[var(--bg-card-subtle)] hover:bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] hover:border-[var(--accent-pond)] text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0 active:scale-95 disabled:opacity-50"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin' : ''}`} />
                       <span>Scan</span>
-                    </Button>
+                    </button>
                   </div>
                 </div>
               )}

@@ -225,7 +225,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      maxWidth="2xl"
+      maxWidth="xl"
       icon={<Camera className="w-4 h-4 text-[var(--accent-pond)]" />}
       title="Camera & Stream Settings"
       description={`Configure parameters for ${camera.sourceName || camera.ipAddress || 'this camera'}`}
