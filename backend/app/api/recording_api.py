@@ -22,10 +22,20 @@ def start_recording(data: StartRecordingRequest, db: Session = Depends(get_db)):
     cam_inst = oak_camera_service.get_instance(cam_id)
 
     if not cam_inst.is_connected or not cam_inst._is_running or cam_inst.device is None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot start recording: Camera {cam_id or ''} hardware is not connected or streaming."
-        )
+        # Fallback to any actively streaming camera in manager
+        running_inst = None
+        for inst in oak_camera_service.get_all_instances().values():
+            if inst.is_connected and inst._is_running and inst.device is not None:
+                running_inst = inst
+                break
+        if running_inst:
+            cam_inst = running_inst
+            logger.info(f"[RECORD] Rerouted start_recording to active running camera instance {running_inst._active_camera_id}")
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot start recording: Camera is not streaming yet. Please click Start Stream first."
+            )
 
     try:
         camera_config = None
@@ -46,6 +56,9 @@ def start_recording(data: StartRecordingRequest, db: Session = Depends(get_db)):
             width, height = 1920, 1080
 
         custom_root_path = camera_config.recording_video_path or None
+        if not custom_root_path or not os.path.exists(custom_root_path):
+            from app.core.app_paths import get_configured_storage_dir
+            custom_root_path = str(get_configured_storage_dir())
 
         path = cam_inst.start_recording(
             session_id=data.session_id,
@@ -129,6 +142,9 @@ def start_all_recordings(data: StartRecordingRequest, db: Session = Depends(get_
             width, height = 1920, 1080
 
         root_path = getattr(camera_config, "recording_video_path", None)
+        if not root_path or not os.path.exists(root_path):
+            from app.core.app_paths import get_configured_storage_dir
+            root_path = str(get_configured_storage_dir())
         fmt = data.recording_format or getattr(camera_config, "recording_format", "MP4")
         fps = float(getattr(camera_config, "fps", 30) or 30)
 

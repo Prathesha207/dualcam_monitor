@@ -97,8 +97,11 @@ def get_configured_storage_dir() -> Path:
                     p_str = cfg.get("recording_video_path")
                     if p_str and p_str.strip():
                         p = Path(p_str.strip())
-                        p.mkdir(parents=True, exist_ok=True)
-                        return p
+                        try:
+                            p.mkdir(parents=True, exist_ok=True)
+                            return p
+                        except Exception:
+                            pass
             except Exception:
                 pass
 
@@ -115,8 +118,11 @@ def get_configured_storage_dir() -> Path:
             )
             if cam and cam.recording_video_path and cam.recording_video_path.strip():
                 p = Path(cam.recording_video_path.strip())
-                p.mkdir(parents=True, exist_ok=True)
-                return p
+                try:
+                    p.mkdir(parents=True, exist_ok=True)
+                    return p
+                except Exception:
+                    pass
         finally:
             db.close()
     except Exception:

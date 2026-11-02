@@ -99,6 +99,16 @@ app = FastAPI(
 )
 
 
+def _cors_headers(request: Request) -> dict:
+    origin = request.headers.get("origin") or "*"
+    return {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "*",
+        "Access-Control-Allow-Headers": "*",
+    }
+
+
 # ---------------------------------------------------
 #  GLOBAL EXCEPTION HANDLERS
 # ---------------------------------------------------
@@ -116,7 +126,8 @@ async def app_exception_handler(request: Request, exc: AppException):
     )
     return JSONResponse(
         status_code=exc.status_code,
-        content={"status": False, "message": exc.message, "data": None, "request_id": req_id}
+        content={"status": False, "message": exc.message, "detail": exc.message, "data": None, "request_id": req_id},
+        headers=_cors_headers(request),
     )
 
 
@@ -140,7 +151,8 @@ async def response_validation_exception_handler(request: Request, exc: ResponseV
             "message": "Response validation error (endpoint returned invalid data)",
             "request_id": req_id,
             "detail": str(exc)
-        }
+        },
+        headers=_cors_headers(request),
     )
 
 
@@ -159,7 +171,8 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
     return JSONResponse(
         status_code=500,
-        content={"status": False, "message": "Internal Server Error", "request_id": req_id, "data": None}
+        content={"status": False, "message": f"Internal Server Error: {exc}", "detail": str(exc), "request_id": req_id, "data": None},
+        headers=_cors_headers(request),
     )
 
 
@@ -196,7 +209,13 @@ async def api_logging_middleware(request: Request, call_next):
                 f"Unhandled error in {method} {path}: {e}",
                 "error"
             )
-            raise e
+            headers = _cors_headers(request)
+            headers["X-Request-ID"] = req_id
+            return JSONResponse(
+                status_code=500,
+                content={"status": False, "message": str(e), "detail": str(e), "request_id": req_id},
+                headers=headers,
+            )
 
         duration_ms = round((time.time() - start_time) * 1000, 1)
 
@@ -248,6 +267,8 @@ async def api_logging_middleware(request: Request, call_next):
             headers = dict(response.headers)
             headers["content-length"] = str(len(body))
             headers["X-Request-ID"] = req_id
+            if "access-control-allow-origin" not in {k.lower() for k in headers.keys()}:
+                headers.update(_cors_headers(request))
             response = Response(
                 content=body,
                 status_code=response.status_code,

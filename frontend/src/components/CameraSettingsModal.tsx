@@ -99,9 +99,22 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       const devices = await cameraService.getAvailableDevices().catch(() => []);
       const list: HwDevice[] = Array.isArray(devices) ? devices : [];
       setHwDevices(list);
-      const usb = list.find((d) => d.is_usb) || list[0] || null;
-      setDetectedUsb(usb);
-      return usb;
+      const usb = list.find((d) => d.is_usb);
+      if (usb) {
+        setDetectedUsb(usb);
+        setNewType('usb');
+        return usb;
+      } else if (list.length > 0) {
+        // PoE / IP device detected (e.g. 169.254.21.191)
+        const netDev = list[0];
+        setDetectedUsb(netDev);
+        setNewType('ip');
+        setNewIp(netDev.ip_or_id || netDev.name || '');
+        return netDev;
+      } else {
+        setDetectedUsb(null);
+        return null;
+      }
     } finally {
       setIsScanning(false);
     }
@@ -294,10 +307,17 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
   };
 
   const handleResetDesktop = async () => {
-    const p = defaultDesktopPath || '';
-    setStoragePath(p);
-    setLocalConfig((prev) => ({ ...prev, recordingVideoPath: p }));
+    let p = defaultDesktopPath;
+    if (!p) {
+      try {
+        const res = await cameraService.getStoragePath();
+        p = res?.default_path || '';
+        if (p) setDefaultDesktopPath(p);
+      } catch {}
+    }
     if (p) {
+      setStoragePath(p);
+      setLocalConfig((prev) => ({ ...prev, recordingVideoPath: p }));
       await cameraService.setStoragePath(p).catch(() => {});
     }
   };

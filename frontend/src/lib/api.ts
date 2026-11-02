@@ -66,4 +66,22 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Response interceptor: unwrap backend error details so toasts show exact reason
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const serverDetail =
+      error.response?.data?.detail ||
+      error.response?.data?.message ||
+      (typeof error.response?.data === 'string' ? error.response?.data : null);
+
+    if (serverDetail && typeof serverDetail === 'string') {
+      error.message = serverDetail;
+    } else if (error.message === 'Network Error') {
+      error.message = 'Unable to reach backend camera service. Ensure backend is running.';
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default api;

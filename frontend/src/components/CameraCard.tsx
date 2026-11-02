@@ -162,6 +162,14 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 </span>
               )}
 
+              {/* Active Recording Pill in Header with Live Ticking Duration */}
+              {isRecording && (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-red-500/15 text-red-600 dark:text-red-400 border border-red-500/40 shrink-0 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+                  REC {formatDuration(recordingDuration)}
+                </span>
+              )}
+
               {/* Mode Badge (Auto / Manual) */}
               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wide uppercase bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] shrink-0">
                 {camera.controlMode?.toUpperCase() || 'AUTO'}

@@ -206,29 +206,70 @@ def set_storage_path(data: StoragePathUpdate):
 @router.post("/browse-folder")
 def browse_folder(data: Optional[BrowseFolderRequest] = None):
     try:
-        import concurrent.futures
         import os
+        import sys
+        import subprocess
         from app.core.app_paths import get_configured_storage_dir, get_desktop_dir
 
         req_dir = data.initial_dir if data and data.initial_dir else None
         start_dir = req_dir or str(get_configured_storage_dir()) or str(get_desktop_dir())
 
-        def _open_dialog():
-            import tkinter as tk
-            from tkinter import filedialog
-            root = tk.Tk()
-            root.withdraw()
-            root.wm_attributes("-topmost", 1)
-            selected = filedialog.askdirectory(
-                initialdir=start_dir,
-                title="Select Directory for Recordings",
-            )
-            root.destroy()
-            return selected
+        selected_path = None
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_open_dialog)
-            selected_path = future.result(timeout=120.0)
+        # 1. Primary: Run Tkinter in an isolated STA Python subprocess (never freezes FastAPI or hangs COM)
+        py_code = (
+            "import sys, os\n"
+            "try:\n"
+            "    import tkinter as tk\n"
+            "    from tkinter import filedialog\n"
+            "    root = tk.Tk()\n"
+            "    root.withdraw()\n"
+            "    root.wm_attributes('-topmost', 1)\n"
+            "    root.lift()\n"
+            "    root.focus_force()\n"
+            f"    chosen = filedialog.askdirectory(initialdir={repr(start_dir)}, title='Select Directory for Recordings')\n"
+            "    root.destroy()\n"
+            "    if chosen:\n"
+            "        sys.stdout.write(os.path.normpath(chosen))\n"
+            "except Exception:\n"
+            "    pass\n"
+        )
+
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-c", py_code],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            out = proc.stdout.strip()
+            if out and os.path.exists(out):
+                selected_path = out
+        except Exception as py_err:
+            logger.warning(f"[BROWSE] Python dialog subprocess error: {py_err}")
+
+        # 2. Windows Fallback: Native Windows Forms FolderBrowserDialog via PowerShell
+        if not selected_path and sys.platform == "win32":
+            try:
+                ps_script = (
+                    "Add-Type -AssemblyName System.Windows.Forms; "
+                    "$d = New-Object System.Windows.Forms.FolderBrowserDialog; "
+                    f"$d.SelectedPath = '{start_dir}'; "
+                    "$d.Description = 'Select Directory for Camera Recordings'; "
+                    "$d.ShowNewFolderButton = $true; "
+                    "if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $d.SelectedPath }"
+                )
+                proc = subprocess.run(
+                    ["powershell", "-NoProfile", "-STA", "-Command", ps_script],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+                out = proc.stdout.strip()
+                if out and os.path.exists(out):
+                    selected_path = out
+            except Exception as ps_err:
+                logger.warning(f"[BROWSE] PowerShell dialog fallback error: {ps_err}")
 
         if selected_path:
             norm_path = os.path.normpath(selected_path)

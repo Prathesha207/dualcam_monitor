@@ -124,8 +124,22 @@ class RecordingSession:
             if options:
                 self.stream.options = options
         except Exception as e:
-            logger.error(f"[RECORD] Failed to open container: {e}")
-            return
+            logger.warning(f"[RECORD] Failed to open container at {self.video_path}: {e} — retrying on Desktop fallback")
+            try:
+                desktop_folder = os.path.join(str(get_desktop_dir()), "recordings", now.strftime("%Y-%m-%d"))
+                os.makedirs(desktop_folder, exist_ok=True)
+                self.video_path = os.path.join(desktop_folder, self.filename)
+                self.container = av.open(self.video_path, mode="w", options=container_options)
+                self.stream = self.container.add_stream(codec_name, rate=1000)
+                self.stream.width   = width
+                self.stream.height  = height
+                self.stream.pix_fmt = pix_fmt
+                if options:
+                    self.stream.options = options
+                logger.info(f"[RECORD] Successfully opened fallback recording on Desktop: {self.video_path}")
+            except Exception as e_fallback:
+                logger.error(f"[RECORD] Fallback container also failed: {e_fallback}")
+                return
 
         self.is_running = True
         self.thread = threading.Thread(target=self._worker, daemon=True)

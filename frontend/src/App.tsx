@@ -104,6 +104,21 @@ export default function App() {
   useEffect(() => {
     if (systemInitialized) {
       refreshCameras();
+      // Probe active hardware stream state from backend
+      cameraService.health().then((h) => {
+        if (h && (h.running || h.streaming)) {
+          const allCams = h.all_cameras || {};
+          setStreamingStates((prev) => {
+            const next = { ...prev };
+            Object.keys(allCams).forEach((cid) => {
+              if (allCams[cid]?.streaming || allCams[cid]?.running) {
+                next[Number(cid)] = true;
+              }
+            });
+            return next;
+          });
+        }
+      }).catch(() => {});
     }
   }, [systemInitialized, refreshCameras]);
 
@@ -213,12 +228,14 @@ export default function App() {
         }
       } else {
         // Start recording
-        if (!streamingStates[id]) {
-          showToast('error', 'Start live stream first before recording');
-          return;
-        }
         const sid = `session_${id}_${Date.now()}`;
         try {
+          if (!streamingStates[id]) {
+            // Auto-activate hardware stream if not active yet
+            await cameraService.start({ camera_id: id, ip_address: cam?.ipAddress }).catch(() => {});
+            await cameraService.startStream(id).catch(() => {});
+            setStreamingStates((prev) => ({ ...prev, [id]: true }));
+          }
           const format = cam?.recordingFormat || 'MP4';
           await recordingService.startRecording(sid, format, id);
           setRecordingStates((prev) => ({ ...prev, [id]: { isRecording: true, duration: 0, sessionId: sid } }));

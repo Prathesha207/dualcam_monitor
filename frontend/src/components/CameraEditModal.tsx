@@ -133,9 +133,17 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
     }
   };
 
-  const handleResetDesktop = () => {
-    if (defaultDesktopPath) {
-      setStoragePath(defaultDesktopPath);
+  const handleResetDesktop = async () => {
+    let p = defaultDesktopPath;
+    if (!p) {
+      try {
+        const res = await cameraService.getStoragePath();
+        p = res?.default_path || '';
+        if (p) setDefaultDesktopPath(p);
+      } catch {}
+    }
+    if (p) {
+      setStoragePath(p);
     }
   };
 
