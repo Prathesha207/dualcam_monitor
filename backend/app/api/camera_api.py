@@ -271,6 +271,48 @@ def browse_folder(data: Optional[BrowseFolderRequest] = None):
             except Exception as ps_err:
                 logger.warning(f"[BROWSE] PowerShell dialog fallback error: {ps_err}")
 
+        # 3. Linux Native Dialogs: zenity (GNOME/Ubuntu) or kdialog (KDE Plasma)
+        if not selected_path and sys.platform.startswith("linux"):
+            import shutil
+            if shutil.which("zenity"):
+                try:
+                    proc = subprocess.run(
+                        [
+                            "zenity",
+                            "--file-selection",
+                            "--directory",
+                            f"--filename={start_dir.rstrip('/')}/",
+                            "--title=Select Directory for Recordings",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                    )
+                    out = proc.stdout.strip()
+                    if out and os.path.exists(out):
+                        selected_path = out
+                except Exception as z_err:
+                    logger.warning(f"[BROWSE] Linux zenity dialog error: {z_err}")
+            elif shutil.which("kdialog"):
+                try:
+                    proc = subprocess.run(
+                        [
+                            "kdialog",
+                            "--getexistingdirectory",
+                            start_dir,
+                            "--title",
+                            "Select Directory for Recordings",
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                    )
+                    out = proc.stdout.strip()
+                    if out and os.path.exists(out):
+                        selected_path = out
+                except Exception as k_err:
+                    logger.warning(f"[BROWSE] Linux kdialog dialog error: {k_err}")
+
         if selected_path:
             norm_path = os.path.normpath(selected_path)
             return {"path": norm_path, "canceled": False}

@@ -20,7 +20,7 @@ if [[ ! -d "$VENV_DIR" ]]; then
   "$PYTHON_BIN" -m venv "$VENV_DIR" || {
     echo "ERROR: Failed to create Python virtual environment."
     echo "On Ubuntu/Debian, install the required packages:"
-    echo "  sudo apt update && sudo apt install -y python3-venv python3-pip python3-dev"
+    echo "  sudo apt update && sudo apt install -y python3-venv python3-pip python3-dev python3-tk zenity"
     exit 1
   }
 fi
