@@ -1,0 +1,26 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/backend/.venv/Lib/site-packages",
+    "${workspaceFolder}/backend",
+    "${workspaceFolder}/backend/app",
+    "${workspaceFolder}/head_tail_analyzer"
+  ],
+  "python.autoComplete.extraPaths": [
+    "${workspaceFolder}/backend/.venv/Lib/site-packages",
+    "${workspaceFolder}/backend",
+    "${workspaceFolder}/backend/app",
+    "${workspaceFolder}/head_tail_analyzer"
+  ],
+  "pyrefly.interpreter": "${workspaceFolder}/backend/.venv/Scripts/python.exe",
+  "pyrefly.extraSearchPaths": [
+    "${workspaceFolder}/backend/.venv/Lib/site-packages"
+  ],
+  "python.analysis.diagnosticSeverityOverrides": {
+    "reportMissingModuleSource": "none"
+  },
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true
+  }
+}
