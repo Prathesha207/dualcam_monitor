@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ThemeMode, CameraConfig } from '../types';
-import { 
-  Sun, 
-  Moon, 
-  Leaf, 
-  Settings, 
-  HelpCircle, 
+import {
+  Sun,
+  Moon,
+  Leaf,
+  Settings,
+  HelpCircle,
   Camera,
   Plus,
   Video,
@@ -32,8 +32,6 @@ export const Header: React.FC<HeaderProps> = ({
   theme,
   onThemeChange,
   cameraConfig,
-  cameras = [],
-  onToggleEnableCamera,
   onOpenSettings,
   onOpenHelp,
   onExitToLanding,
@@ -84,9 +82,9 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="sticky top-0 z-40 w-full bg-[var(--bg-card)] border-b border-[var(--border-color)] text-[var(--text-primary)] shadow-xs select-none">
       <div className="w-full max-w-[1720px] 2xl:max-w-[1920px] mx-auto px-3 sm:px-5 lg:px-6 py-2 sm:py-2.5 flex items-center justify-between gap-2 sm:gap-3">
-        
+
         {/* 1. Left: Brand Title with PRO badge */}
-        <div 
+        <div
           onClick={() => {
             if (onExitToLanding) {
               onExitToLanding();
@@ -117,17 +115,16 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* 2. Right: Action Buttons & Utilities */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-          
+
           {/* Conditional Record Both: ONLY appears when both cameras are connected */}
           {canRecordBoth && onToggleRecordBoth && (
             <button
               onClick={onToggleRecordBoth}
               title={isRecordingBoth ? 'Stop recording both cameras' : 'Start synchronized recording on both cameras'}
-              className={`inline-flex items-center gap-2 h-8 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 ${
-                isRecordingBoth
+              className={`inline-flex items-center gap-2 h-8 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 ${isRecordingBoth
                   ? 'bg-[var(--status-anomaly-bg)] text-[var(--status-anomaly-text)] border-[var(--status-anomaly-border)] animate-pulse'
                   : 'bg-[var(--btn-secondary-bg)] text-[var(--btn-secondary-text)] border-[var(--btn-secondary-border)] hover:bg-[var(--btn-secondary-hover)]'
-              }`}
+                }`}
             >
               <span className={`w-2.5 h-2.5 rounded-full ${isRecordingBoth ? 'bg-[var(--status-anomaly-text)] animate-ping' : 'bg-red-500'}`} />
               <span>{isRecordingBoth ? 'Stop Both' : 'Record Both'}</span>
