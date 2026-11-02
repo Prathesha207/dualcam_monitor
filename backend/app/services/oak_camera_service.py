@@ -1358,22 +1358,18 @@ class OakCameraService:
                                 "error_code": "DEVICE_IN_USE",
                             }
 
-                        if "no oak device found" in (self._last_connection_error or "").lower():
+                        if "no oak device found" in (self._last_connection_error or "").lower() or "cannot find any device" in (self._last_connection_error or "").lower():
                             return {
                                 "status": "error",
-                                "message": self._last_connection_error or "No OAK device found over USB or network",
+                                "message": f"No OAK camera found at {config.ip_address or 'specified device'}. Please check the IP address or connection.",
                                 "error_code": "NO_DEVICE",
                             }
 
-                        selected = str(config.ip_address or "").strip().lower()
-                        if selected not in {"", "usb", "auto", "127.0.0.1", "localhost"}:
-                            logger.warning(
-                                f"[START] Could not connect to {config.ip_address}; trying USB OAK"
-                            )
-                            if not await self.connect("usb"):
-                                return {"status": "error", "message": self._last_connection_error or "Device connection failed"}
-                        else:
-                            return {"status": "error", "message": self._last_connection_error or "Device connection failed"}
+                        return {
+                            "status": "error",
+                            "message": self._last_connection_error or f"Failed to connect to camera ({config.ip_address or 'device'})",
+                            "error_code": "CONNECTION_FAILED",
+                        }
 
                 self.current_brightness = int(config.brightness or 0)
                 self.current_contrast = int(config.contrast if config.contrast is not None and config.contrast != 0 else 50)

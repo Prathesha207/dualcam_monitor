@@ -222,16 +222,9 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <h4 className="font-bold text-sm sm:text-base text-[var(--text-primary)] mb-1">
               {camera.sourceName || `Camera ${index}`} Powered Off
             </h4>
-            <p className="text-xs text-[var(--text-secondary)] max-w-xs mb-4">
-              Hardware connection is released. Click below to power on hardware.
+            <p className="text-xs text-[var(--text-secondary)] max-w-xs">
+              Hardware connection is released. Use the power button at top-right to power on.
             </p>
-            <button
-              onClick={() => onToggleEnable(cameraId, false)}
-              className="inline-flex items-center gap-2 h-9 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border border-emerald-500 text-xs font-bold transition-all cursor-pointer shadow-xs"
-            >
-              <Power className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>Power On {camera.sourceName || `Camera ${index}`}</span>
-            </button>
           </div>
         )}
 
@@ -292,7 +285,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         {/* Left: Stream Control & Record Control */}
         <div className="flex items-center gap-2">
           
-          {/* Stream button: GREEN for start, WARNING AMBER for stop, POWER ON if disabled */}
+          {/* Stream button: GREEN for start, WARNING AMBER for stop, DISABLED if hardware is off */}
           {isStreaming ? (
             <button
               onClick={() => onStopStream(cameraId)}
@@ -302,21 +295,12 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               <Square className="w-3.5 h-3.5 fill-current" />
               <span>Stop Stream</span>
             </button>
-          ) : !isEnabled ? (
-            <button
-              onClick={() => onToggleEnable(cameraId, false)}
-              title="Power on camera hardware"
-              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-emerald-600/15 hover:bg-emerald-600/25 active:scale-95 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 text-xs font-bold transition-all cursor-pointer shadow-xs focus:outline-none"
-            >
-              <Power className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>Power On</span>
-            </button>
           ) : (
             <button
               onClick={() => onStartStream(cameraId)}
-              disabled={isStarting}
-              title="Start live stream"
-              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border border-emerald-500 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:outline-none focus:ring-0"
+              disabled={!isEnabled || isStarting}
+              title={!isEnabled ? 'Camera hardware is disabled (enable via power button at top-right)' : 'Start live stream'}
+              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border border-emerald-500 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none focus-visible:outline-none focus:ring-0"
             >
               {isStarting ? (
                 <>
