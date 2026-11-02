@@ -56,7 +56,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
   const [activeTab, setActiveTab] = useState<'stream' | 'image' | 'oak'>('stream');
 
   const [savedCameras, setSavedCameras] = useState<SavedCameraRow[]>([]);
-  const [, setHwDevices] = useState<HwDevice[]>([]);
+  const [hwDevices, setHwDevices] = useState<HwDevice[]>([]);
   const [isScanning, setIsScanning] = useState(false);
   const [isLoadingList, setIsLoadingList] = useState(false);
 

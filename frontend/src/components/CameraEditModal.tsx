@@ -31,6 +31,7 @@ interface HwDevice {
   name: string;
   ip_or_id: string;
   is_usb: boolean;
+  protocol?: string;
 }
 
 export const CameraEditModal: React.FC<CameraEditModalProps> = ({
@@ -559,7 +560,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
                       </option>
                       {availableDevices.map((dev, i) => (
                         <option key={dev.mxid || i} value={dev.ip_or_id}>
-                          {dev.name} ({dev.protocol})
+                          {dev.name} ({dev.protocol || (dev.is_usb ? 'USB' : 'PoE')})
                         </option>
                       ))}
                     </select>
