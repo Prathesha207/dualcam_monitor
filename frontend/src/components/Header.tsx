@@ -9,6 +9,7 @@ import {
   Camera,
   Plus,
   Video,
+  Power,
 } from 'lucide-react';
 import { IconButton } from './ui';
 import { getApiBaseUrl } from '../lib/api';
@@ -17,6 +18,8 @@ interface HeaderProps {
   theme: ThemeMode;
   onThemeChange: (theme: ThemeMode) => void;
   cameraConfig?: CameraConfig;
+  cameras?: CameraConfig[];
+  onToggleEnableCamera?: (id: number, currentEnabled: boolean) => void;
   onOpenSettings: () => void;
   onOpenHelp: () => void;
   fps?: number;
@@ -32,6 +35,8 @@ export const Header: React.FC<HeaderProps> = ({
   theme,
   onThemeChange,
   cameraConfig,
+  cameras = [],
+  onToggleEnableCamera,
   onOpenSettings,
   onOpenHelp,
   onExitToLanding,
@@ -116,6 +121,19 @@ export const Header: React.FC<HeaderProps> = ({
         {/* 2. Right: Action Buttons & Utilities */}
         <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           
+          {/* Quick Re-enable Pill for any disabled cameras so they don't occupy canvas space but are easily restored */}
+          {cameras.filter((c) => c.is_enabled === false).map((c) => (
+            <button
+              key={c.id}
+              onClick={() => c.id && onToggleEnableCamera && onToggleEnableCamera(c.id, false)}
+              title={`Hardware power is off for ${c.sourceName || `Camera ${c.id}`}. Click to power on and restore to view.`}
+              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 border border-amber-500/30 text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+            >
+              <Power className="w-3 h-3 stroke-[2.5]" />
+              <span className="truncate max-w-[130px]">Power On {c.sourceName || `Cam ${c.id}`}</span>
+            </button>
+          ))}
+
           {/* Conditional Record Both: ONLY appears when both cameras are connected */}
           {canRecordBoth && onToggleRecordBoth && (
             <button

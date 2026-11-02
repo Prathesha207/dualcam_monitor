@@ -89,7 +89,7 @@ export default function App() {
           contrast: c.contrast ?? 50,
           autoFocus: false,
           autoExposure: false,
-          connected: c.is_enabled !== false,
+          connected: false,
           is_enabled: c.is_enabled !== false,
           recordingFormat: (c.recording_format as any) || 'MP4',
           recordingVideoPath: c.recording_video_path || null,
@@ -326,7 +326,7 @@ export default function App() {
           await handleStopStream(id).catch(() => {});
         }
         await cameraService.deleteCamera(id);
-        showToast('info', `Camera ${id} deleted`);
+        showToast('info', `Camera deleted successfully`);
         addLog(`Deleted camera ${id} from database`, 'warn');
         if (activeControlsCamera?.id === id) setActiveControlsCamera(null);
         if (expandedCameraId === id) setExpandedCameraId(null);
@@ -385,10 +385,13 @@ export default function App() {
     );
   }
 
-  // Determine which cameras to show (Expanded single camera vs dual view)
+  // Only enabled cameras should occupy main canvas viewports (unless expanded specifically)
+  const enabledCameras = cameras.filter((c) => c.is_enabled !== false);
   const displayCameras = expandedCameraId !== null
     ? cameras.filter((c) => c.id === expandedCameraId)
-    : cameras.slice(0, 2);
+    : enabledCameras.length > 0
+    ? enabledCameras.slice(0, 2)
+    : cameras.slice(0, 1);
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-[var(--bg-page)] text-[var(--text-primary)] select-none">
@@ -398,6 +401,8 @@ export default function App() {
         theme={theme}
         onThemeChange={handleThemeChange}
         cameraConfig={cameras[0]}
+        cameras={cameras}
+        onToggleEnableCamera={handleToggleEnable}
         activeCameraCount={cameras.filter((c) => c.is_enabled !== false).length}
         canRecordBoth={canRecordBoth}
         isRecordingBoth={isRecordingBoth}
