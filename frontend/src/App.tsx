@@ -157,12 +157,15 @@ export default function App() {
       } catch (err: any) {
         const msg = err?.message || `Failed to start stream on Camera ${id}`;
         setConnectionErrors((prev) => ({ ...prev, [id]: msg }));
+        // Unreachable device must not stay enabled
+        await cameraService.disableCamera(id).catch(() => {});
+        await refreshCameras();
         showToast('error', msg);
       } finally {
         setStartingStates((prev) => ({ ...prev, [id]: false }));
       }
     },
-    [cameras, showToast, addLog]
+    [cameras, refreshCameras, showToast, addLog]
   );
 
   const handleStopStream = useCallback(
@@ -201,7 +204,20 @@ export default function App() {
           showToast('info', `Camera ${id} hardware disabled`);
           addLog(`Disabled hardware on camera ${id}`, 'warn');
         } else {
-          // Enable hardware
+          // Enable hardware: verify reachability for IP camera
+          const cam = cameras.find((c) => c.id === id);
+          if (cam?.ipAddress && cam.ipAddress.trim() && !cam.ipAddress.toLowerCase().includes('usb')) {
+            try {
+              await cameraService.start({ camera_id: id, ip_address: cam.ipAddress });
+            } catch (connErr: any) {
+              const msg = connErr?.message || `Cannot enable camera ${id}: device unreachable at ${cam.ipAddress}`;
+              setConnectionErrors((prev) => ({ ...prev, [id]: msg }));
+              await cameraService.disableCamera(id).catch(() => {});
+              await refreshCameras();
+              showToast('error', msg);
+              return;
+            }
+          }
           await cameraService.enableCamera(id);
           showToast('success', `Camera ${id} hardware enabled`);
           addLog(`Enabled hardware on camera ${id}`, 'info');
@@ -211,7 +227,7 @@ export default function App() {
         showToast('error', err?.message || 'Failed to toggle camera hardware state');
       }
     },
-    [streamingStates, handleStopStream, showToast, addLog, refreshCameras]
+    [cameras, streamingStates, handleStopStream, showToast, addLog, refreshCameras]
   );
 
   // ─── 9. Recording Handlers ─────────────────────────────────────────

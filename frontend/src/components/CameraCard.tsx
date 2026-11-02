@@ -206,9 +206,17 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={() => onToggleEnable(cameraId, isEnabled)}
-            title={isEnabled ? 'Hardware is ON (Click to power down)' : 'Hardware is OFF (Click to power up)'}
+            title={
+              connectionError
+                ? 'Camera is unreachable (Click to retry connection)'
+                : isEnabled
+                ? 'Hardware is ON (Click to power down)'
+                : 'Hardware is OFF (Click to power up)'
+            }
             className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all cursor-pointer shadow-xs active:scale-95 ${
-              isEnabled
+              connectionError
+                ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/20'
+                : isEnabled
                 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
                 : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-amber-500/20'
             }`}
@@ -228,23 +236,8 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           <div className="absolute inset-0 z-30 bg-white/40 pointer-events-none animate-out fade-out duration-200" />
         )}
 
-        {/* State A: Hardware Disabled */}
-        {!isEnabled && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
-            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 mb-3 shadow-xs">
-              <Power className="w-6 h-6 stroke-[2]" />
-            </div>
-            <h4 className="font-bold text-sm sm:text-base text-[var(--text-primary)] mb-1">
-              {camera.sourceName || `Camera ${index}`} Powered Off
-            </h4>
-            <p className="text-xs text-[var(--text-secondary)] max-w-xs">
-              Hardware connection is released. Use the power button at top-right to power on.
-            </p>
-          </div>
-        )}
-
-        {/* State B1: Hardware Enabled, but Connection Error / Unreachable */}
-        {isEnabled && !isStreaming && connectionError && (
+        {/* State A: Connection Error / Unreachable (Top priority over normal powered off or standby) */}
+        {connectionError && !isStreaming ? (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
             <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 mb-3 shadow-xs">
               <AlertTriangle className="w-6 h-6 stroke-[1.75]" />
@@ -284,10 +277,21 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               </button>
             </div>
           </div>
-        )}
-
-        {/* State B2: Hardware Enabled, Stream Stopped & Ready */}
-        {isEnabled && !isStreaming && !connectionError && (
+        ) : !isEnabled ? (
+          /* State B: Hardware Disabled by User */
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 mb-3 shadow-xs">
+              <Power className="w-6 h-6 stroke-[2]" />
+            </div>
+            <h4 className="font-bold text-sm sm:text-base text-[var(--text-primary)] mb-1">
+              {camera.sourceName || `Camera ${index}`} Powered Off
+            </h4>
+            <p className="text-xs text-[var(--text-secondary)] max-w-xs">
+              Hardware connection is released. Use the power button at top-right to power on.
+            </p>
+          </div>
+        ) : !isStreaming ? (
+          /* State C: Hardware Enabled, Stream Stopped & Ready */
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
             <div className="w-12 h-12 rounded-2xl bg-[var(--accent-pond-subtle)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] mb-3 shadow-xs">
               <Radio className="w-6 h-6 stroke-[1.75]" />
@@ -299,7 +303,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               Stream is currently stopped. Click &quot;Start Stream&quot; below to begin live video.
             </p>
           </div>
-        )}
+        ) : null}
 
         {/* State C: Live Video Feed (100% clean, no repeated text overlays) */}
         {isEnabled && isStreaming && (
