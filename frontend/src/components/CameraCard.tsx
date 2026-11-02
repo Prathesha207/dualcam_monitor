@@ -162,6 +162,11 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   LIVE
                 </span>
+              ) : isStarting ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30 shrink-0">
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                  CONNECTING
+                </span>
               ) : connectionError ? (
                 <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
@@ -226,8 +231,25 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           <div className="absolute inset-0 z-30 bg-white/40 pointer-events-none animate-out fade-out duration-200" />
         )}
 
+        {/* State 0: Connecting (When camera hardware is starting up / retrying) */}
+        {!isStreaming && isStarting && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
+            <div className="w-12 h-12 rounded-2xl bg-[var(--accent-pond-subtle)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] mb-3 shadow-xs">
+              <Loader2 className="w-6 h-6 animate-spin text-[var(--accent-pond)]" />
+            </div>
+            <h4 className="font-bold text-sm sm:text-base text-[var(--text-primary)] mb-1">
+              Connecting to {camera.sourceName || `Camera ${index}`}
+            </h4>
+            <p className="text-xs text-[var(--text-secondary)] max-w-xs">
+              {isIpCamera
+                ? `Establishing link to ${camera.ipAddress}...`
+                : 'Initializing OAK hardware pipeline...'}
+            </p>
+          </div>
+        )}
+
         {/* State A: Connection Error / Unreachable (Same clean styling as Standby) */}
-        {!isStreaming && connectionError && (
+        {!isStreaming && !isStarting && connectionError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
             <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 mb-3 shadow-xs">
               <AlertTriangle className="w-6 h-6 stroke-[1.75]" />
@@ -270,7 +292,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         )}
 
         {/* State B: Hardware Disabled (No connection error) */}
-        {!isStreaming && !connectionError && !isEnabled && (
+        {!isStreaming && !isStarting && !connectionError && !isEnabled && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
             <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-600 dark:text-amber-400 mb-3 shadow-xs">
               <Power className="w-6 h-6 stroke-[2]" />
@@ -285,7 +307,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         )}
 
         {/* State C: Hardware Enabled, Stream Stopped & Ready */}
-        {!isStreaming && !connectionError && isEnabled && (
+        {!isStreaming && !isStarting && !connectionError && isEnabled && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
             <div className="w-12 h-12 rounded-2xl bg-[var(--accent-pond-subtle)] border border-[var(--border-color)] flex items-center justify-center text-[var(--accent-pond)] mb-3 shadow-xs">
               <Radio className="w-6 h-6 stroke-[1.75]" />
