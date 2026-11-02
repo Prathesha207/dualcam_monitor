@@ -458,7 +458,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 isStarting
                   ? 'bg-emerald-600/70 text-white border-emerald-500 cursor-wait'
                   : connectionError || !isEnabled
-                  ? 'bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border-color)] opacity-35 cursor-not-allowed'
+                  ? 'bg-emerald-600 text-white border-emerald-500 opacity-40 cursor-not-allowed'
                   : 'bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white border-emerald-500 cursor-pointer'
               }`}
             >
@@ -469,7 +469,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 </>
               ) : (
                 <>
-                  <Play className={`w-3.5 h-3.5 fill-current ${connectionError || !isEnabled ? 'text-slate-400' : ''}`} />
+                  <Play className="w-3.5 h-3.5 fill-current" />
                   <span>Start Stream</span>
                 </>
               )}
