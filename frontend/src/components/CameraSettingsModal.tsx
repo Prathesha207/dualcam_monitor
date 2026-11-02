@@ -87,7 +87,10 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
     setIsLoadingList(true);
     try {
       const cameras = await cameraService.checkCamera().catch(() => []);
-      if (Array.isArray(cameras)) setSavedCameras(cameras);
+      if (Array.isArray(cameras)) {
+        setSavedCameras(cameras);
+        setNewName((prev) => (prev.trim() ? prev : `Cam ${cameras.length + 1}`));
+      }
     } finally {
       setIsLoadingList(false);
     }
@@ -609,6 +612,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                     onClick={() => {
                       setNewType('usb');
                       setErrorMessage(null);
+                      setNewName((prev) => (prev.trim() ? prev : (detectedUsb?.name || 'OAK USB Camera')));
                     }}
                     className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${newType === 'usb'
                       ? 'bg-[var(--accent-pond)] text-white shadow-xs'
@@ -622,6 +626,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                     onClick={() => {
                       setNewType('ip');
                       setErrorMessage(null);
+                      setNewName((prev) => (prev.trim() ? prev : (savedCameras.length > 0 ? `Cam ${savedCameras.length + 1}` : 'Cam 1')));
                     }}
                     className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${newType === 'ip'
                       ? 'bg-[var(--accent-pond)] text-white shadow-xs'
