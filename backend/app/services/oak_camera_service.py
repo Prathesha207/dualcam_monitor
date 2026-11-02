@@ -1566,15 +1566,6 @@ class OakCameraManager:
         with self._lock:
             if camera_id is not None:
                 cid = int(camera_id)
-                if cid in self._instances and (self._instances[cid].is_running or self._instances[cid].is_connected):
-                    return self._instances[cid]
-
-                # Fallback: if only one camera instance is active/connected across the entire manager, route to it
-                running_instances = [inst for inst in self._instances.values() if inst.is_running or inst.is_connected]
-                if len(running_instances) == 1:
-                    self._instances[cid] = running_instances[0]
-                    return running_instances[0]
-
                 if cid not in self._instances:
                     inst = OakCameraService()
                     inst._active_camera_id = cid
@@ -1584,6 +1575,9 @@ class OakCameraManager:
             # If no camera_id specified:
             if self._default_cam_id is not None and self._default_cam_id in self._instances:
                 return self._instances[self._default_cam_id]
+            running_instances = [inst for inst in self._instances.values() if inst.is_running or inst.is_connected]
+            if len(running_instances) == 1:
+                return running_instances[0]
             for cid, inst in self._instances.items():
                 if inst.is_running:
                     return inst

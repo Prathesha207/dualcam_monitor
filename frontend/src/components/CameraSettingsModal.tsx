@@ -103,6 +103,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       if (usb) {
         setDetectedUsb(usb);
         setNewType('usb');
+        setNewName((prev) => (prev.trim() ? prev : (usb.name || 'OAK USB Camera')));
         return usb;
       } else if (list.length > 0) {
         // PoE / IP device detected (e.g. 169.254.21.191)
@@ -110,6 +111,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
         setDetectedUsb(netDev);
         setNewType('ip');
         setNewIp(netDev.ip_or_id || netDev.name || '');
+        setNewName((prev) => (prev.trim() ? prev : (netDev.name || 'Cam 01')));
         return netDev;
       } else {
         setDetectedUsb(null);
@@ -235,8 +237,12 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       setErrorMessage('Stop the active recording before connecting a camera.');
       return;
     }
+    const name = newName.trim();
+    if (!name) {
+      setErrorMessage('Please enter a Camera Label / Name before saving.');
+      return;
+    }
     const ipAddress = newType === 'usb' ? (detectedUsb?.ip_or_id || 'usb') : newIp.trim();
-    const name = newName.trim() || (newType === 'usb' ? (detectedUsb?.name || 'USB OAK Camera') : `IP Camera (${newIp.trim()})`);
 
     if (newType === 'ip' && !newIp.trim()) {
       setErrorMessage('Please enter a valid IP address or hostname');
