@@ -151,6 +151,10 @@ class OakCameraService:
     def is_running(self) -> bool:
         return self._is_running
 
+    @property
+    def is_recording(self) -> bool:
+        return self._active_recording is not None
+
     # ==================== Device ====================
 
     async def connect(self, ip: str) -> bool:
@@ -1732,6 +1736,11 @@ class OakCameraManager:
                 if inst._active_recording is not None:
                     count += 1
         return count
+
+    @property
+    def is_recording(self) -> bool:
+        with self._lock:
+            return any(getattr(inst, "_active_recording", None) is not None for inst in self._instances.values())
 
     def get_all_instances(self) -> dict[int, OakCameraService]:
         with self._lock:

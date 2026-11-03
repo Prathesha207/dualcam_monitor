@@ -414,7 +414,7 @@ def update_controls(
     save_to_db: bool | None = None,
 ):
     try:
-        if oak_camera_service.is_recording:
+        if getattr(oak_camera_service, "is_recording", False) or getattr(oak_camera_service, "_active_recording", None) is not None:
             logger.warning("[LIVE CONTROLS] Rejected — recording is active")
             return {"status": "error", "message": "Camera controls are locked while recording is active"}
 
