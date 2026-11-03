@@ -3,6 +3,7 @@ import type { CameraConfig } from '../types';
 import { cameraService } from './service/cameraService';
 import { useCanvasZoom } from '../hooks/useCanvasZoom';
 import { ZoomControls } from './canvas/ZoomControls';
+import { CameraTuningPopover } from './canvas/CameraTuningPopover';
 import {
   Play,
   Square,
@@ -37,7 +38,8 @@ interface CameraCardProps {
   onToggleEnable: (id: number, currentEnabled: boolean) => void;
   onExpandToggle: (id: number) => void;
   onOpenEdit: (camera: CameraConfig) => void;
-  onOpenControls: (camera: CameraConfig) => void;
+  onOpenControls?: (camera: CameraConfig) => void;
+  onUpdateLiveControls?: (id: number, partial: Partial<CameraConfig>) => void;
   onSnapshot?: (id: number) => void;
 }
 
@@ -58,6 +60,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
   onExpandToggle,
   onOpenEdit,
   onOpenControls,
+  onUpdateLiveControls,
   onSnapshot,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -66,6 +69,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
   const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
   const [videoAspect, setVideoAspect] = useState(16 / 9);
   const [snapshotFlash, setSnapshotFlash] = useState(false);
+  const [isTuningOpen, setIsTuningOpen] = useState(false);
 
   const cameraId = camera.id || index;
   const isEnabled = camera.is_enabled !== false;
@@ -216,10 +220,32 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 </span>
               )}
 
-              {/* Mode Badge (Auto / Manual) */}
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wide uppercase bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] shrink-0">
+              {/* Mode Badge (Auto / Manual) - Clickable to open manual tuning controls */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (camera.controlMode !== 'manual') {
+                    onUpdateLiveControls?.(cameraId, { controlMode: 'manual' });
+                    setIsTuningOpen(true);
+                  } else {
+                    setIsTuningOpen((prev) => !prev);
+                  }
+                }}
+                title={
+                  camera.controlMode === 'manual'
+                    ? (isTuningOpen ? 'Close manual tuning' : 'Open manual tuning controls')
+                    : 'Click to enable Manual controls and open tuning popover'
+                }
+                className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wide uppercase transition-all cursor-pointer active:scale-95 ${
+                  camera.controlMode === 'manual'
+                    ? isTuningOpen
+                      ? 'bg-cyan-600 text-white border border-cyan-500 shadow-xs ring-1 ring-cyan-500/30'
+                      : 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/25'
+                    : 'bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] hover:brightness-110'
+                } shrink-0`}
+              >
                 {camera.controlMode?.toUpperCase() || 'AUTO'}
-              </span>
+              </button>
             </div>
 
             {/* Hardware & Stream Details Subtitle */}
@@ -408,7 +434,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         )}
 
         {/* Floating Canvas Zoom Controls (Bottom Right of Video) */}
-        {isEnabled && isStreaming && !streamError && (
+        {isEnabled && isStreaming && !streamError && !isTuningOpen && (
           <div
             className="absolute right-3 bottom-3 z-30"
             onMouseDown={(e) => e.stopPropagation()}
@@ -422,6 +448,19 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               onSetZoom={setZoomLevel}
             />
           </div>
+        )}
+
+        {/* In-Canvas Camera Tuning Popover (Floating Over Video Canvas) */}
+        {isTuningOpen && (
+          <CameraTuningPopover
+            cameraId={cameraId}
+            cameraIndex={index}
+            cameraName={camera.sourceName || `Camera 0${index}`}
+            config={camera}
+            isLive={isStreaming}
+            onClose={() => setIsTuningOpen(false)}
+            onUpdateConfig={(partial) => onUpdateLiveControls?.(cameraId, partial)}
+          />
         )}
       </div>
 
@@ -538,20 +577,26 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <Settings2 className="w-3.5 h-3.5" />
           </button>
 
-          {/* 3. Manual Live Controls (Sliders: Exposure, Gain, Focus, Brightness, Contrast) - ONLY in manual mode */}
-          {camera.controlMode === 'manual' && (
-            <button
-              onClick={() => onOpenControls(camera)}
-              title={isControlsOpen ? 'Close image controls' : 'Adjust exposure, gain, focus & brightness'}
-              className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all cursor-pointer active:scale-95 shadow-xs ${
-                isControlsOpen
-                  ? 'bg-[var(--accent-pond)] text-white border-[var(--accent-pond)] shadow-md'
-                  : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border-[var(--btn-secondary-border)] text-[var(--text-primary)]'
-              }`}
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-            </button>
-          )}
+          {/* 3. Manual Live Controls (Sliders: Exposure, Gain, Focus, Brightness, Contrast) */}
+          <button
+            onClick={() => {
+              if (camera.controlMode !== 'manual') {
+                onUpdateLiveControls?.(cameraId, { controlMode: 'manual' });
+                setIsTuningOpen(true);
+              } else {
+                setIsTuningOpen((prev) => !prev);
+              }
+              onOpenControls?.(camera);
+            }}
+            title={isTuningOpen ? 'Close image tuning' : 'Adjust exposure, gain, focus & brightness'}
+            className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all cursor-pointer active:scale-95 shadow-xs ${
+              isTuningOpen
+                ? 'bg-cyan-600 text-white border-cyan-500 shadow-md ring-2 ring-cyan-500/30'
+                : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border-[var(--btn-secondary-border)] text-[var(--text-primary)]'
+            }`}
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
     </div>

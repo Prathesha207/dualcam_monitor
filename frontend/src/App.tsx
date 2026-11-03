@@ -3,7 +3,6 @@ import type { ThemeMode, CameraConfig } from './types';
 import { LandingScreen } from './components/LandingScreen';
 import { Header } from './components/Header';
 import { CameraCard } from './components/CameraCard';
-import { CameraImageAdjustmentsCard } from './components/CameraImageAdjustmentsCard';
 import { CameraSettingsModal } from './components/CameraSettingsModal';
 import { CameraEditModal } from './components/CameraEditModal';
 import { HelpModal } from './components/HelpModal';
@@ -62,7 +61,6 @@ export default function App() {
   >({});
 
   const [expandedCameraId, setExpandedCameraId] = useState<number | null>(null);
-  const [activeControlsCamera, setActiveControlsCamera] = useState<CameraConfig | null>(null);
   const [connectionErrors, setConnectionErrors] = useState<Record<number, string | null>>({});
   const [editCamera, setEditCamera] = useState<CameraConfig | null>(null);
   const [addCameraOpen, setAddCameraOpen] = useState<boolean>(false);
@@ -449,14 +447,13 @@ export default function App() {
         await cameraService.deleteCamera(id);
         showToast('info', `Camera deleted successfully`);
         addLog(`Deleted camera ${id} from database`, 'warn');
-        if (activeControlsCamera?.id === id) setActiveControlsCamera(null);
         if (expandedCameraId === id) setExpandedCameraId(null);
         await refreshCameras();
       } catch (err: any) {
         showToast('error', err?.message || 'Failed to delete camera');
       }
     },
-    [streamingStates, handleStopStream, activeControlsCamera, expandedCameraId, showToast, addLog, refreshCameras]
+    [streamingStates, handleStopStream, expandedCameraId, showToast, addLog, refreshCameras]
   );
 
   // ─── 12. Live Controls Updates ─────────────────────────────────────
@@ -464,7 +461,6 @@ export default function App() {
     setCameras((prev) =>
       prev.map((c) => (c.id === id ? { ...c, ...partial } : c))
     );
-    setActiveControlsCamera((prev) => (prev?.id === id ? { ...prev, ...partial } : prev));
   }, []);
 
   // ─── 13. Global Shortcuts ──────────────────────────────────────────
@@ -486,9 +482,6 @@ export default function App() {
       } else if (e.key === 's' || e.key === 'S') {
         e.preventDefault();
         handleSnapshot();
-      } else if (e.key === 'c' || e.key === 'C') {
-        e.preventDefault();
-        setActiveControlsCamera((prev) => (prev ? null : cameras[0] || null));
       }
     };
 
@@ -577,7 +570,6 @@ export default function App() {
                     isRecording={Boolean(recordingStates[camId]?.isRecording)}
                     recordingDuration={recordingStates[camId]?.duration || 0}
                     isExpanded={expandedCameraId === camId}
-                    isControlsOpen={activeControlsCamera?.id === camId}
                     connectionError={connectionErrors[camId] || null}
                     onStartStream={handleStartStream}
                     onStopStream={handleStopStream}
@@ -585,9 +577,7 @@ export default function App() {
                     onToggleEnable={handleToggleEnable}
                     onExpandToggle={(id) => setExpandedCameraId((prev) => (prev === id ? null : id))}
                     onOpenEdit={(c) => setEditCamera(c)}
-                    onOpenControls={(c) =>
-                      setActiveControlsCamera((prev) => (prev?.id === c.id ? null : c))
-                    }
+                    onUpdateLiveControls={handleUpdateLiveControls}
                     onSnapshot={handleSnapshot}
                   />
                 );
@@ -596,23 +586,6 @@ export default function App() {
           )}
 
         </div>
-
-        {/* Right Drawer: Live Camera Image Adjustments Panel */}
-        {activeControlsCamera && (
-          <aside className="w-80 lg:w-96 flex-shrink-0 animate-in slide-in-from-right-4 duration-200 overflow-y-auto">
-            <CameraImageAdjustmentsCard
-              cameraId={activeControlsCamera.id}
-              config={activeControlsCamera}
-              onUpdateConfig={(partial) => {
-                if (activeControlsCamera.id) {
-                  handleUpdateLiveControls(activeControlsCamera.id, partial);
-                }
-              }}
-              isLive={Boolean(activeControlsCamera.id && streamingStates[activeControlsCamera.id])}
-              onClose={() => setActiveControlsCamera(null)}
-            />
-          </aside>
-        )}
 
       </main>
 

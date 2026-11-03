@@ -106,15 +106,16 @@ export const cameraService = {
   },
 
   async updateLiveControls(id: string | number | undefined, data: any) {
-    try {
-      const res = await api.post("/oak/controls", data);
-      return res.data;
-    } catch {
-      if (id) {
+    if (id) {
+      try {
         const res = await api.patch(`/camera/live-controls/${id}`, data);
         return res.data;
+      } catch (err) {
+        console.warn(`[cameraService] PATCH /camera/live-controls/${id} failed, trying /oak/controls:`, err);
       }
     }
+    const res = await api.post("/oak/controls", data);
+    return res.data;
   },
 
   async resetCameraControls() {
