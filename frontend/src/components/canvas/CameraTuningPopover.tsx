@@ -351,13 +351,13 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
       </div>
 
       {/* 2. Sensor Gain (ISO) */}
-      <div className="py-1 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-0.5">
-        <div className="flex items-center justify-between">
+      <div className="py-1 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
+        <div className="flex items-center justify-between leading-none mb-0.5">
           <div className="flex items-center gap-1 text-[11px] font-bold text-[var(--text-primary)]">
             <Zap className="w-3 h-3 text-amber-500 fill-amber-500/20" />
             <span>Gain</span>
           </div>
-          <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+          <span className="px-1.5 py-0.2 rounded font-mono text-[9.5px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 leading-none">
             ISO {gain}
           </span>
         </div>
@@ -369,18 +369,18 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           value={gain}
           onChange={(e) => handleGainChange(parseInt(e.target.value, 10))}
           style={getSliderStyle(gain, 100, 1600)}
-          className="w-full h-1 rounded-lg cursor-pointer"
+          className="w-full h-1 block cursor-pointer m-0 p-0"
         />
       </div>
 
       {/* 3. Focus Lens */}
-      <div className="py-1 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-0.5">
-        <div className="flex items-center justify-between">
+      <div className="py-1 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
+        <div className="flex items-center justify-between leading-none mb-0.5">
           <div className="flex items-center gap-1 text-[11px] font-bold text-[var(--text-primary)]">
             <Focus className="w-3 h-3 text-[var(--accent-pond)]" />
             <span>Focus</span>
           </div>
-          <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30">
+          <span className="px-1.5 py-0.2 rounded font-mono text-[9.5px] font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30 leading-none">
             {config.focusAvailable === false ? 'Auto' : focus}
           </span>
         </div>
@@ -393,18 +393,18 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           disabled={config.focusAvailable === false}
           onChange={(e) => handleFocusChange(parseInt(e.target.value, 10))}
           style={getSliderStyle(focus, 0, 255)}
-          className="w-full h-1 rounded-lg cursor-pointer disabled:opacity-40"
+          className="w-full h-1 block cursor-pointer disabled:opacity-40 m-0 p-0"
         />
       </div>
 
       {/* 4. Exposure Shutter */}
-      <div className="py-1 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-0.5">
-        <div className="flex items-center justify-between">
+      <div className="py-1 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
+        <div className="flex items-center justify-between leading-none mb-0.5">
           <div className="flex items-center gap-1 text-[11px] font-bold text-[var(--text-primary)]">
             <Sun className="w-3 h-3 text-[var(--accent-pond)]" />
             <span>Exposure</span>
           </div>
-          <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30">
+          <span className="px-1.5 py-0.2 rounded font-mono text-[9.5px] font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30 leading-none">
             {exposure} ms
           </span>
         </div>
@@ -416,16 +416,16 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           value={exposure}
           onChange={(e) => handleExposureChange(parseInt(e.target.value, 10))}
           style={getSliderStyle(exposure, 1, 33)}
-          className="w-full h-1 rounded-lg cursor-pointer"
+          className="w-full h-1 block cursor-pointer m-0 p-0"
         />
       </div>
 
       {/* 5. Tone (Brightness & Contrast side-by-side) */}
       <div className="py-1 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] grid grid-cols-2 gap-2">
         <div>
-          <div className="flex items-center justify-between text-[10px] font-medium text-[var(--text-secondary)] mb-0.5">
+          <div className="flex items-center justify-between text-[10px] font-medium text-[var(--text-secondary)] leading-none mb-0.5">
             <span>Brightness</span>
-            <span className="font-mono font-bold text-[var(--accent-pond)] text-[9.5px]">
+            <span className="font-mono font-bold text-[var(--accent-pond)] text-[9px] leading-none">
               {brightness > 0 ? `+${brightness}` : brightness}
             </span>
           </div>
@@ -437,13 +437,13 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
             value={brightness}
             onChange={(e) => handleBrightnessChange(parseInt(e.target.value, 10))}
             style={getSliderStyle(brightness, -50, 50)}
-            className="w-full h-1 rounded-lg cursor-pointer"
+            className="w-full h-1 block cursor-pointer m-0 p-0"
           />
         </div>
         <div>
-          <div className="flex items-center justify-between text-[10px] font-medium text-[var(--text-secondary)] mb-0.5">
+          <div className="flex items-center justify-between text-[10px] font-medium text-[var(--text-secondary)] leading-none mb-0.5">
             <span>Contrast</span>
-            <span className="font-mono font-bold text-[var(--accent-pond)] text-[9.5px]">{contrast}</span>
+            <span className="font-mono font-bold text-[var(--accent-pond)] text-[9px] leading-none">{contrast}</span>
           </div>
           <input
             type="range"
@@ -453,7 +453,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
             value={contrast}
             onChange={(e) => handleContrastChange(parseInt(e.target.value, 10))}
             style={getSliderStyle(contrast, 0, 100)}
-            className="w-full h-1 rounded-lg cursor-pointer"
+            className="w-full h-1 block cursor-pointer m-0 p-0"
           />
         </div>
       </div>

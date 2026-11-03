@@ -71,6 +71,13 @@ export const CameraCard: React.FC<CameraCardProps> = ({
   const [snapshotFlash, setSnapshotFlash] = useState(false);
   const [isTuningOpen, setIsTuningOpen] = useState(false);
 
+  // Automatically close tuning popover if mode is not manual
+  useEffect(() => {
+    if (camera.controlMode !== 'manual') {
+      setIsTuningOpen(false);
+    }
+  }, [camera.controlMode]);
+
   const cameraId = camera.id || index;
   const isEnabled = camera.is_enabled !== false;
   const isIpCamera = Boolean(
@@ -220,7 +227,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 </span>
               )}
 
-              {/* Mode Badge (Auto / Manual) - Clickable to open manual tuning controls */}
+              {/* Mode Badge (Auto / Manual) - Clickable to toggle between AUTO and MANUAL */}
               <button
                 type="button"
                 onClick={() => {
@@ -228,13 +235,14 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                     onUpdateLiveControls?.(cameraId, { controlMode: 'manual' });
                     setIsTuningOpen(true);
                   } else {
-                    setIsTuningOpen((prev) => !prev);
+                    onUpdateLiveControls?.(cameraId, { controlMode: 'auto' });
+                    setIsTuningOpen(false);
                   }
                 }}
                 title={
                   camera.controlMode === 'manual'
-                    ? (isTuningOpen ? 'Close manual tuning' : 'Open manual tuning controls')
-                    : 'Click to enable Manual controls and open tuning popover'
+                    ? 'Mode: MANUAL (Click to switch to AUTO)'
+                    : 'Mode: AUTO (Click to enable MANUAL tuning)'
                 }
                 className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase transition-all cursor-pointer active:scale-95 border ${
                   camera.controlMode === 'manual'
@@ -450,8 +458,8 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </div>
         )}
 
-        {/* In-Canvas Camera Tuning Popover (Floating Over Video Canvas) */}
-        {isTuningOpen && (
+        {/* In-Canvas Camera Tuning Popover - ONLY when in manual mode */}
+        {isTuningOpen && camera.controlMode === 'manual' && (
           <CameraTuningPopover
             cameraId={cameraId}
             cameraIndex={index}
@@ -577,26 +585,23 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <Settings2 className="w-3.5 h-3.5" />
           </button>
 
-          {/* 3. Manual Live Controls (Sliders: Exposure, Gain, Focus, Brightness, Contrast) */}
-          <button
-            onClick={() => {
-              if (camera.controlMode !== 'manual') {
-                onUpdateLiveControls?.(cameraId, { controlMode: 'manual' });
-                setIsTuningOpen(true);
-              } else {
+          {/* 3. Manual Live Controls (Sliders: Exposure, Gain, Focus, Brightness, Contrast) - ONLY IN MANUAL MODE */}
+          {camera.controlMode === 'manual' && (
+            <button
+              onClick={() => {
                 setIsTuningOpen((prev) => !prev);
-              }
-              onOpenControls?.(camera);
-            }}
-            title={isTuningOpen ? 'Close image tuning' : 'Adjust exposure, gain, focus & brightness'}
-            className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all cursor-pointer active:scale-95 shadow-xs ${
-              isTuningOpen
-                ? 'bg-cyan-600 text-white border-cyan-500 shadow-md ring-2 ring-cyan-500/30'
-                : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border-[var(--btn-secondary-border)] text-[var(--text-primary)]'
-            }`}
-          >
-            <SlidersHorizontal className="w-3.5 h-3.5" />
-          </button>
+                onOpenControls?.(camera);
+              }}
+              title={isTuningOpen ? 'Close image tuning' : 'Adjust exposure, gain, focus & brightness'}
+              className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all cursor-pointer active:scale-95 shadow-xs ${
+                isTuningOpen
+                  ? 'bg-cyan-600 text-white border-cyan-500 shadow-md ring-2 ring-cyan-500/30'
+                  : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border-[var(--btn-secondary-border)] text-[var(--text-primary)]'
+              }`}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
     </div>
