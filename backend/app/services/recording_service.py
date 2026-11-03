@@ -21,6 +21,35 @@ logger = logging.getLogger("recording-service")
 # session_id → RecordingSession
 active_recordings: dict = {}
 
+_NVENC_FUNCTIONAL: bool | None = None
+
+
+def _is_nvenc_functional() -> bool:
+    global _NVENC_FUNCTIONAL
+    if _NVENC_FUNCTIONAL is not None:
+        return _NVENC_FUNCTIONAL
+    if "h264_nvenc" not in av.codec.codecs_available:
+        _NVENC_FUNCTIONAL = False
+        return False
+    try:
+        devnull = "nul" if os.name == "nt" else "/dev/null"
+        c = av.open(devnull, mode="w", format="mp4")
+        s = c.add_stream("h264_nvenc", rate=30)
+        s.width = 64
+        s.height = 64
+        s.pix_fmt = "yuv420p"
+        s.options = {"preset": "fast"}
+        f = av.VideoFrame(64, 64, "yuv420p")
+        s.encode(f)
+        c.close()
+        _NVENC_FUNCTIONAL = True
+        logger.info("[RECORD] Hardware acceleration verified: h264_nvenc is functional")
+        return True
+    except Exception as e:
+        logger.info(f"[RECORD] NVENC not functional on this system ({e}) — using optimized libx264")
+        _NVENC_FUNCTIONAL = False
+        return False
+
 
 class RecordingSession:
     def __init__(
@@ -88,12 +117,12 @@ class RecordingSession:
             fmt        = "MP4"
             pix_fmt    = "yuv420p"
             ext        = ".mp4"
-            if "h264_nvenc" in av.codec.codecs_available:
+            if _is_nvenc_functional():
                 codec_name = "h264_nvenc"
                 options    = {"preset": "fast", "cq": "20"}
             else:
                 codec_name = "libx264"
-                options    = {"preset": "veryfast", "crf": "18"}
+                options    = {"preset": "ultrafast", "crf": "22", "tune": "zerolatency"}
 
         self.fmt = fmt
         self.codec_name = codec_name
@@ -164,9 +193,26 @@ class RecordingSession:
                 self._stream.options = self.codec_options
             logger.info(f"[RECORD] Opened clip {self._current_clip_index} at {self._temp_clip_path}")
         except Exception as e:
-            logger.error(f"[RECORD] Failed to open clip container: {e}", exc_info=True)
-            self._container = None
-            self._stream = None
+            logger.warning(f"[RECORD] Failed to open clip container with {self.codec_name}: {e}. Retrying with libx264...")
+            if self.codec_name != "libx264":
+                self.codec_name = "libx264"
+                self.codec_options = {"preset": "ultrafast", "crf": "22", "tune": "zerolatency"}
+                try:
+                    self._container = av.open(self._temp_clip_path, mode="w", options=container_options)
+                    self._stream = self._container.add_stream(self.codec_name, rate=1000)
+                    self._stream.width   = self.width
+                    self._stream.height  = self.height
+                    self._stream.pix_fmt = self.pix_fmt
+                    if self.codec_options:
+                        self._stream.options = self.codec_options
+                    logger.info(f"[RECORD] Fallback succeeded: opened clip {self._current_clip_index} with libx264")
+                except Exception as ex2:
+                    logger.error(f"[RECORD] Fallback clip container failed: {ex2}", exc_info=True)
+                    self._container = None
+                    self._stream = None
+            else:
+                self._container = None
+                self._stream = None
 
     def _close_clip(self, end_pts_ms: int):
         if not self._container or not self._stream:
@@ -300,6 +346,7 @@ class RecordingSession:
 
                 except Exception as e:
                     logger.warning(f"[RECORD] Frame encode warning: {e}")
+                    time.sleep(0.01)
 
         except Exception as e:
             logger.error(f"[RECORD] Worker fatal exception: {e}", exc_info=True)

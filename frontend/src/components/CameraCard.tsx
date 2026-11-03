@@ -95,6 +95,14 @@ export const CameraCard: React.FC<CameraCardProps> = ({
     }
   }, [isStreaming, connectionError]);
 
+  // Refresh stream connection and reset error state when stream starts
+  useEffect(() => {
+    if (isStreaming) {
+      setStreamCacheBuster(Date.now());
+      setStreamError(false);
+    }
+  }, [isStreaming]);
+
   // Canvas Zoom & Pan Hook (active when live stream is running)
   const {
     zoom,
@@ -591,18 +599,18 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           {/* Record button: Solid red button (never white) */}
           <button
             onClick={() => onToggleRecord(cameraId)}
-            disabled={!isStreaming || !isEnabled}
+            disabled={!isEnabled}
             title={
               !isEnabled
                 ? 'Camera hardware is disabled'
-                : !isStreaming
-                ? 'Start live stream first to record'
                 : isRecording
                 ? 'Stop recording'
-                : 'Start recording'
+                : isStreaming
+                ? 'Start recording'
+                : 'Start stream and record'
             }
             className={`inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl text-xs font-bold border transition-all shadow-xs focus:outline-none focus-visible:outline-none focus:ring-0 ${
-              !isStreaming || !isEnabled
+              !isEnabled
                 ? 'bg-red-600 text-white border-red-500 opacity-40 cursor-not-allowed'
                 : isRecording
                 ? 'bg-red-600 hover:bg-red-700 active:scale-95 text-white border-red-500 shadow-xs shadow-red-500/25 animate-pulse cursor-pointer'
@@ -641,11 +649,23 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             {isExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
 
-          {/* 2. Edit Camera Config */}
+          {/* 2. Edit Camera Config - Disabled while recording */}
           <button
-            onClick={() => onOpenEdit(camera)}
-            title="Edit camera parameters, resolution, FPS, format & device"
-            className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--text-primary)] cursor-pointer active:scale-95 shadow-xs"
+            onClick={() => {
+              if (isRecording) return;
+              onOpenEdit(camera);
+            }}
+            disabled={isRecording}
+            title={
+              isRecording
+                ? 'Stop recording before editing camera configuration'
+                : 'Edit camera parameters, resolution, FPS, format & device'
+            }
+            className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all shadow-xs ${
+              isRecording
+                ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-35 cursor-not-allowed'
+                : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] cursor-pointer active:scale-95'
+            }`}
           >
             <Settings2 className="w-3.5 h-3.5" />
           </button>

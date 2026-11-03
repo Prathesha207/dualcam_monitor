@@ -1398,9 +1398,10 @@ class OakCameraService:
         if not self._is_running or not self.is_connected or self.device is None:
             raise RuntimeError("Cannot start recording: OAK camera is not running or disconnected")
 
-        if not (self._convert_thread and self._convert_thread.is_alive()):
+        if not (self._convert_thread and self._convert_thread.is_alive()) or not (self._mjpeg_thread and self._mjpeg_thread.is_alive()):
             logger.info("[RECORD] Capture threads not running — starting them now")
             self._start_capture_threads()
+        self._is_streaming = True
 
         resolved_format = self._resolve_recording_format(recording_format)
         resolved_path = root_path or self._resolve_recording_path()

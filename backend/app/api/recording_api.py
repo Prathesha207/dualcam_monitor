@@ -17,39 +17,37 @@ router = APIRouter()
 
 
 @router.post("/start")
-def start_recording(data: StartRecordingRequest, db: Session = Depends(get_db)):
+async def start_recording(data: StartRecordingRequest, db: Session = Depends(get_db)):
     cam_id = data.camera_id
     cam_inst = oak_camera_service.get_instance(cam_id)
 
+    camera_config = None
+    if cam_id:
+        from app.models.camera_model import Camera
+        camera_config = db.query(Camera).filter(Camera.id == cam_id).first()
+    if not camera_config:
+        camera_config = camera_service.get_camera_config(db)
+
     if not cam_inst.is_connected or not cam_inst._is_running or cam_inst.device is None:
-        if cam_id is None:
-            # Fallback only when no specific camera_id was requested
-            running_inst = None
-            for inst in oak_camera_service.get_all_instances().values():
-                if inst.is_connected and inst._is_running and inst.device is not None:
-                    running_inst = inst
-                    break
-            if running_inst:
-                cam_inst = running_inst
-                logger.info(f"[RECORD] Rerouted start_recording to active running camera instance {running_inst._active_camera_id}")
-            else:
+        if camera_config and camera_config.is_enabled is not False:
+            logger.info(f"[RECORD] Camera {cam_id or camera_config.id} pipeline not running — auto-starting camera device for recording")
+            try:
+                await cam_inst.start(camera_config)
+                cam_inst._start_capture_threads()
+                cam_inst._is_streaming = True
+            except Exception as e:
+                logger.error(f"[RECORD] Auto-start camera {cam_id or camera_config.id} failed: {e}")
                 raise HTTPException(
-                    status_code=400,
-                    detail="Cannot start recording: Camera is not streaming yet. Please click Start Stream first."
+                    status_code=500,
+                    detail=f"Failed to auto-start camera for recording: {e}"
                 )
         else:
             raise HTTPException(
                 status_code=400,
-                detail=f"Cannot start recording for Camera {cam_id}: Camera is not streaming yet. Please click Start Stream first."
+                detail=f"Cannot start recording: Camera {cam_id or ''} is disabled or config not found."
             )
 
     try:
-        camera_config = None
-        if cam_id:
-            from app.models.camera_model import Camera
-            camera_config = db.query(Camera).filter(Camera.id == cam_id).first()
-        if not camera_config:
-            camera_config = camera_service.get_camera_config(db)
         if not camera_config:
             raise HTTPException(status_code=404, detail="Camera config not found")
 
@@ -132,9 +130,20 @@ def stop_recording(data: StopRecordingRequest):
 
 
 @router.post("/start-all")
-def start_all_recordings(data: StartRecordingRequest, db: Session = Depends(get_db)):
-    """Start recording synchronously across all active running cameras."""
+async def start_all_recordings(data: StartRecordingRequest, db: Session = Depends(get_db)):
+    """Start recording synchronously across all active running cameras (auto-starting enabled ones)."""
     from app.models.camera_model import Camera
+    all_cams = db.query(Camera).filter(Camera.is_enabled != False).all()
+    for cam_row in all_cams:
+        inst = oak_camera_service.get_instance(cam_row.id)
+        if not inst.is_running or not inst.is_connected:
+            try:
+                await inst.start(cam_row)
+                inst._start_capture_threads()
+                inst._is_streaming = True
+            except Exception as e:
+                logger.warning(f"[RECORD-ALL] Auto-start for cam {cam_row.id} failed: {e}")
+
     active_instances = oak_camera_service.get_all_instances()
     running_cams = {cid: inst for cid, inst in active_instances.items() if inst.is_running and inst.is_connected}
 

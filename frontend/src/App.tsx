@@ -317,9 +317,7 @@ export default function App() {
         try {
           if (!streamingStates[id]) {
             // Auto-activate hardware stream if not active yet
-            await cameraService.start({ camera_id: id, ip_address: cam?.ipAddress }).catch(() => {});
-            await cameraService.startStream(id).catch(() => {});
-            setStreamingStates((prev) => ({ ...prev, [id]: true }));
+            await handleStartStream(id);
           }
           const format = cam?.recordingFormat || 'MP4';
           await recordingService.startRecording(sid, format, id);
@@ -331,16 +329,16 @@ export default function App() {
         }
       }
     },
-    [recordingStates, streamingStates, cameras, showToast, addLog]
+    [recordingStates, streamingStates, cameras, handleStartStream, showToast, addLog]
   );
 
-  // Dual Record Both: starts/stops recording on all connected & streaming cameras
+  // Dual Record Both: starts/stops recording on all connected cameras
   const isRecordingBoth =
     cameras.length >= 2 && cameras.every((c) => c.id && recordingStates[c.id]?.isRecording);
 
   const canRecordBoth =
     cameras.length >= 2 &&
-    cameras.filter((c) => c.is_enabled !== false && c.id && streamingStates[c.id]).length >= 2;
+    cameras.filter((c) => c.is_enabled !== false).length >= 2;
 
   const handleToggleRecordBoth = useCallback(async () => {
     if (isRecordingBoth) {
@@ -357,21 +355,27 @@ export default function App() {
       // Start all
       const baseSid = `dual_session_${Date.now()}`;
       try {
+        // Auto-start stream on all enabled cameras that are not streaming yet
+        for (const c of cameras) {
+          if (c.id && c.is_enabled !== false && !streamingStates[c.id]) {
+            await handleStartStream(c.id).catch(() => {});
+          }
+        }
         await recordingService.startAllRecordings(baseSid);
         const newStates: Record<number, { isRecording: boolean; duration: number; sessionId: string }> = {};
         cameras.forEach((c) => {
-          if (c.id && streamingStates[c.id]) {
+          if (c.id && c.is_enabled !== false) {
             newStates[c.id] = { isRecording: true, duration: 0, sessionId: `${baseSid}_cam${c.id}` };
           }
         });
         setRecordingStates(newStates);
-        showToast('info', 'Synchronized dual recording started on all streaming cameras');
+        showToast('info', 'Synchronized dual recording started on all cameras');
         addLog('Started synchronized dual recording', 'info');
       } catch (err: any) {
         showToast('error', err?.message || 'Failed to start dual recording');
       }
     }
-  }, [isRecordingBoth, cameras, streamingStates, showToast, addLog]);
+  }, [isRecordingBoth, cameras, streamingStates, handleStartStream, showToast, addLog]);
 
   // ─── 10. Snapshot ──────────────────────────────────────────────────
   const handleSnapshot = useCallback(
