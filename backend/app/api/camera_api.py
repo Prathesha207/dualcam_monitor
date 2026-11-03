@@ -33,13 +33,6 @@ def create_camera(data: CameraCreate, db: Session = Depends(get_db)):
 @router.put("/update/{camera_id}", response_model=CameraResponse)
 def update_camera(camera_id: int, data: CameraUpdate, db: Session = Depends(get_db)):
     try:
-        inst = oak_camera_service.get_instance(camera_id)
-        is_rec = bool(getattr(inst, "is_recording", False) or getattr(inst, "_active_recording", None) is not None)
-        if is_rec:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot edit camera settings while recording is active on camera {camera_id}. Stop recording first."
-            )
         return camera_service.update_camera_partial(db, camera_id, data)
     except HTTPException:
         raise
@@ -117,11 +110,6 @@ def update_live_controls(
     if not inst.is_running:
         logger.warning(f"[LIVE CONTROLS] Rejected — camera {camera_id} pipeline not running")
         return {"status": "error", "message": f"Camera {camera_id} is not running"}
-
-    is_rec = bool(getattr(inst, "is_recording", False) or getattr(inst, "_active_recording", None) is not None)
-    if is_rec:
-        logger.warning(f"[LIVE CONTROLS] Rejected — camera {camera_id} is currently recording")
-        return {"status": "error", "message": f"Camera {camera_id} controls are locked while recording is active"}
 
     try:
         af = data.auto_focus if data.auto_focus is not None else data.autoFocus
