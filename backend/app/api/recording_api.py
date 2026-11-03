@@ -22,19 +22,25 @@ def start_recording(data: StartRecordingRequest, db: Session = Depends(get_db)):
     cam_inst = oak_camera_service.get_instance(cam_id)
 
     if not cam_inst.is_connected or not cam_inst._is_running or cam_inst.device is None:
-        # Fallback to any actively streaming camera in manager
-        running_inst = None
-        for inst in oak_camera_service.get_all_instances().values():
-            if inst.is_connected and inst._is_running and inst.device is not None:
-                running_inst = inst
-                break
-        if running_inst:
-            cam_inst = running_inst
-            logger.info(f"[RECORD] Rerouted start_recording to active running camera instance {running_inst._active_camera_id}")
+        if cam_id is None:
+            # Fallback only when no specific camera_id was requested
+            running_inst = None
+            for inst in oak_camera_service.get_all_instances().values():
+                if inst.is_connected and inst._is_running and inst.device is not None:
+                    running_inst = inst
+                    break
+            if running_inst:
+                cam_inst = running_inst
+                logger.info(f"[RECORD] Rerouted start_recording to active running camera instance {running_inst._active_camera_id}")
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Cannot start recording: Camera is not streaming yet. Please click Start Stream first."
+                )
         else:
             raise HTTPException(
                 status_code=400,
-                detail="Cannot start recording: Camera is not streaming yet. Please click Start Stream first."
+                detail=f"Cannot start recording for Camera {cam_id}: Camera is not streaming yet. Please click Start Stream first."
             )
 
     try:
@@ -154,6 +160,9 @@ def start_all_recordings(data: StartRecordingRequest, db: Session = Depends(get_
         fmt = data.recording_format or getattr(camera_config, "recording_format", "MP4")
         fps = float(getattr(camera_config, "fps", 30) or 30)
 
+        cam_name = camera_config.name if camera_config else f"Camera_{cid}"
+        clip_mins = getattr(camera_config, "clip_duration_minutes", 1) or 1
+
         path = inst.start_recording(
             session_id=cam_session_id,
             width=width,
@@ -162,6 +171,9 @@ def start_all_recordings(data: StartRecordingRequest, db: Session = Depends(get_
             root_path=root_path,
             recording_format=fmt,
             camera_settings=inst._recording_settings_snapshot(),
+            camera_id=cid,
+            camera_name=cam_name,
+            clip_duration_minutes=clip_mins,
         )
         results[cid] = {
             "session_id": cam_session_id,

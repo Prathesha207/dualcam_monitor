@@ -71,13 +71,6 @@ export const CameraCard: React.FC<CameraCardProps> = ({
   const [snapshotFlash, setSnapshotFlash] = useState(false);
   const [isTuningOpen, setIsTuningOpen] = useState(false);
 
-  // Automatically close tuning popover if mode is not manual
-  useEffect(() => {
-    if (camera.controlMode !== 'manual') {
-      setIsTuningOpen(false);
-    }
-  }, [camera.controlMode]);
-
   const cameraId = camera.id || index;
   const isEnabled = camera.is_enabled !== false;
   const isIpCamera = Boolean(
@@ -227,7 +220,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 </span>
               )}
 
-              {/* Mode Badge (Auto / Manual) - Clickable to toggle between AUTO and MANUAL */}
+              {/* Mode Badge (Auto / Manual) - Clickable to toggle manual mode and tuning */}
               <button
                 type="button"
                 onClick={() => {
@@ -241,8 +234,8 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 }}
                 title={
                   camera.controlMode === 'manual'
-                    ? 'Mode: MANUAL (Click to switch to AUTO)'
-                    : 'Mode: AUTO (Click to enable MANUAL tuning)'
+                    ? (isTuningOpen ? 'Close manual tuning' : 'Open manual tuning controls')
+                    : 'Click to enable Manual controls and open tuning popover'
                 }
                 className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase transition-all cursor-pointer active:scale-95 border ${
                   camera.controlMode === 'manual'
@@ -441,10 +434,10 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </div>
         )}
 
-        {/* Floating Canvas Zoom Controls (Bottom Right of Video) */}
-        {isEnabled && isStreaming && !streamError && !isTuningOpen && (
+        {/* Floating Canvas Zoom Controls (Bottom Left of Video Canvas) */}
+        {isEnabled && isStreaming && !streamError && (
           <div
-            className="absolute right-3 bottom-3 z-30"
+            className="absolute left-3 bottom-3 z-30"
             onMouseDown={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
           >
@@ -458,8 +451,8 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </div>
         )}
 
-        {/* In-Canvas Camera Tuning Popover - ONLY when in manual mode */}
-        {isTuningOpen && camera.controlMode === 'manual' && (
+        {/* In-Canvas Camera Tuning Popover (Floating Over Video Canvas) - ONLY when in manual mode and no connection error */}
+        {isTuningOpen && camera.controlMode === 'manual' && !connectionError && (
           <CameraTuningPopover
             cameraId={cameraId}
             cameraIndex={index}
@@ -585,8 +578,8 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <Settings2 className="w-3.5 h-3.5" />
           </button>
 
-          {/* 3. Manual Live Controls (Sliders: Exposure, Gain, Focus, Brightness, Contrast) - ONLY IN MANUAL MODE */}
-          {camera.controlMode === 'manual' && (
+          {/* 3. Manual Live Controls (Sliders: Exposure, Gain, Focus, Brightness, Contrast) - ONLY show in manual mode without errors */}
+          {camera.controlMode === 'manual' && !connectionError && (
             <button
               onClick={() => {
                 setIsTuningOpen((prev) => !prev);
