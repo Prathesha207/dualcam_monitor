@@ -426,6 +426,7 @@ class OakCameraService:
 
             encoder = pipeline.create(dai.node.VideoEncoder)
             encoder.setDefaultProfilePreset(fps, dai.VideoEncoderProperties.Profile.MJPEG)
+            encoder.setQuality(95)
 
             if not is_color_camera:
                 # --- Node 1: MJPEG encoder → stream preview ---
@@ -883,7 +884,7 @@ class OakCameraService:
                 frame_copy = self._latest_bgr.copy()
                 loop = asyncio.get_running_loop()
                 def _encode():
-                    ret, buf = cv2.imencode(".jpg", frame_copy, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                    ret, buf = cv2.imencode(".jpg", frame_copy, [cv2.IMWRITE_JPEG_QUALITY, 95])
                     return buf.tobytes() if ret else None
                 return await loop.run_in_executor(None, _encode)
             except Exception:
