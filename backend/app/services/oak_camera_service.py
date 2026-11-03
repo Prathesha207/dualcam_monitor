@@ -187,7 +187,26 @@ class OakCameraService:
                     )
                     return False
                 logger.info(f"[DEVICE] Resolved connection target: {device_info}")
-                self.device = await loop.run_in_executor(None, dai.Device, device_info)
+                try:
+                    self.device = await loop.run_in_executor(None, dai.Device, device_info)
+                except Exception as dev_err:
+                    err_text = str(dev_err)
+                    # If device not found by IP, check if it is actually connected via USB
+                    if ("cannot find" in err_text.lower() or "not found" in err_text.lower()) and ("." in str(ip)):
+                        with _depthai_device_enum_lock:
+                            devices = dai.Device.getAllAvailableDevices()
+                            unclaimed = [d for d in devices if (getattr(d, "mxid", "") or "") not in claimed]
+                            if len(unclaimed) == 1:
+                                usb_dev = unclaimed[0]
+                                logger.info(
+                                    f"[DEVICE] IP '{ip}' not reachable over Ethernet, but found USB OAK camera "
+                                    f"(mxid={getattr(usb_dev, 'mxid', 'USB')}). Connecting via USB..."
+                                )
+                                self.device = await loop.run_in_executor(None, dai.Device, usb_dev)
+                            else:
+                                raise dev_err
+                    else:
+                        raise dev_err
                 self.device.setLogLevel(dai.LogLevel.WARN)
                 self.device.setLogOutputLevel(dai.LogLevel.WARN)
                 self.is_connected = True
@@ -303,6 +322,22 @@ class OakCameraService:
                 raise RuntimeError(
                     f"IP address '{valid_ip}' is already in use by another camera. Dual cameras must have different IP addresses."
                 )
+
+            # Check if an available device in getAllAvailableDevices matches this IP, name, or mxid
+            with _depthai_device_enum_lock:
+                devices = dai.Device.getAllAvailableDevices()
+                for d in devices:
+                    mxid = getattr(d, "mxid", "") or ""
+                    name = getattr(d, "name", "") or ""
+                    desc_name = ""
+                    try:
+                        desc = d.getXLinkDeviceDesc()
+                        desc_name = getattr(desc, "name", "") or ""
+                    except Exception:
+                        pass
+                    if valid_ip in {name, desc_name, mxid} and mxid not in excludes:
+                        logger.info(f"[DEVICE] Found matching device in enumeration for '{valid_ip}': {d}")
+                        return d
 
             # Target ONLY this IP address via dai.DeviceInfo
             try:
