@@ -35,10 +35,11 @@ def update_camera(camera_id: int, data: CameraUpdate, db: Session = Depends(get_
     try:
         inst = oak_camera_service.get_instance(camera_id)
         is_rec = bool(getattr(inst, "is_recording", False) or getattr(inst, "_active_recording", None) is not None)
-        if is_rec:
+        if is_rec or inst.is_running:
+            state_str = "recording is active" if is_rec else "streaming is active"
             raise HTTPException(
                 status_code=400,
-                detail=f"Cannot edit camera settings while recording is active on camera {camera_id}. Stop recording first."
+                detail=f"Cannot edit camera settings while {state_str} on camera {camera_id}. Stop camera first."
             )
         return camera_service.update_camera_partial(db, camera_id, data)
     except HTTPException:
@@ -114,28 +115,14 @@ def update_live_controls(
     )
 
     inst = oak_camera_service.get_instance(camera_id)
-    if not inst.is_running:
-        logger.warning(f"[LIVE CONTROLS] Rejected — camera {camera_id} pipeline not running")
-        return {"status": "error", "message": f"Camera {camera_id} is not running"}
-
     is_rec = bool(getattr(inst, "is_recording", False) or getattr(inst, "_active_recording", None) is not None)
-    if is_rec:
-        logger.warning(f"[LIVE CONTROLS] Rejected — camera {camera_id} is currently recording")
-        return {"status": "error", "message": f"Camera {camera_id} controls are locked while recording is active"}
+    if is_rec or inst.is_running:
+        logger.warning(f"[LIVE CONTROLS] Rejected — camera {camera_id} controls are locked while streaming or recording")
+        return {"status": "error", "message": f"Camera {camera_id} controls are disabled while streaming or recording"}
 
     try:
         af = data.auto_focus if data.auto_focus is not None else data.autoFocus
         ae = data.auto_exposure if data.auto_exposure is not None else data.autoExposure
-        inst.update_controls(
-            exposure=data.exposure,
-            gain=data.gain,
-            focus=data.focus,
-            brightness=data.brightness,
-            contrast=data.contrast,
-            auto_focus=af,
-            auto_exposure=ae,
-            control_mode=data.control_mode,
-        )
 
         # Persist controls to DB so next time camera starts it reloads these exact settings
         camera = db.query(Camera).filter(Camera.id == camera_id).first()
@@ -158,8 +145,8 @@ def update_live_controls(
                 camera.auto_exposure = ae
             db.commit()
 
-        logger.info("[LIVE CONTROLS] Applied and saved to database successfully")
-        return {"status": "success", "message": "Live controls applied and saved to database"}
+        logger.info("[LIVE CONTROLS] Saved to database successfully in idle state")
+        return {"status": "success", "message": "Controls saved to database"}
 
     except Exception as e:
         logger.error(f"[LIVE CONTROLS] Failed: {e}", exc_info=True)

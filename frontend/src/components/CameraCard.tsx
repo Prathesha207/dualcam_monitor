@@ -88,12 +88,12 @@ export const CameraCard: React.FC<CameraCardProps> = ({
      connectionError.toLowerCase().includes('claimed'))
   );
 
-  // Auto-close tuning popover if recording starts, stream stops, or connection error occurs
+  // Auto-close tuning popover if streaming or recording is active, or connection error occurs (only enabled in IDLE / Standby)
   useEffect(() => {
-    if (isRecording || !isStreaming || connectionError) {
+    if (isStreaming || isRecording || connectionError) {
       setIsTuningOpen(false);
     }
-  }, [isRecording, isStreaming, connectionError]);
+  }, [isStreaming, isRecording, connectionError]);
 
   // Refresh stream connection and reset error state when stream starts
   useEffect(() => {
@@ -257,9 +257,9 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               {!connectionError && isEnabled && (
                 <button
                   type="button"
-                  disabled={isRecording || !isStreaming}
+                  disabled={isStreaming || isRecording}
                   onClick={() => {
-                    if (isRecording || !isStreaming) return;
+                    if (isStreaming || isRecording) return;
                     if (camera.controlMode !== 'manual') {
                       onUpdateLiveControls?.(cameraId, { controlMode: 'manual' });
                       setIsTuningOpen(true);
@@ -271,14 +271,14 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                   title={
                     isRecording
                       ? 'Camera controls are locked while recording is active'
-                      : !isStreaming
-                      ? 'Start live stream first to tune camera controls'
+                      : isStreaming
+                      ? 'Camera controls are locked while streaming is active'
                       : camera.controlMode === 'manual'
                       ? (isTuningOpen ? 'Close manual tuning' : 'Open manual tuning controls')
                       : 'Click to enable Manual controls and open tuning popover'
                   }
                   className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase transition-all border shrink-0 ${
-                    isRecording || !isStreaming
+                    isStreaming || isRecording
                       ? 'opacity-40 cursor-not-allowed bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border-color)]'
                       : 'cursor-pointer active:scale-95 ' +
                         (camera.controlMode === 'manual'
@@ -520,8 +520,8 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </div>
         )}
 
-        {/* In-Canvas Camera Tuning Popover (Floating Over Video Canvas) - ONLY when in manual mode, no connection error, and streaming */}
-        {isTuningOpen && isStreaming && camera.controlMode === 'manual' && !connectionError && (
+        {/* In-Canvas Camera Tuning Popover (Floating Over Canvas in IDLE / Standby mode) */}
+        {isTuningOpen && !isStreaming && !isRecording && camera.controlMode === 'manual' && !connectionError && (
           <CameraTuningPopover
             cameraId={cameraId}
             cameraIndex={index}
@@ -651,20 +651,22 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             {isExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
 
-          {/* 2. Edit Camera Config - Disabled while recording */}
+          {/* 2. Edit Camera Config - Disabled while streaming or recording (Only enabled in IDLE / Standby) */}
           <button
             onClick={() => {
-              if (isRecording) return;
+              if (isStreaming || isRecording) return;
               onOpenEdit(camera);
             }}
-            disabled={isRecording}
+            disabled={isStreaming || isRecording}
             title={
               isRecording
                 ? 'Stop recording before editing camera configuration'
+                : isStreaming
+                ? 'Stop live stream before editing camera configuration'
                 : 'Edit camera parameters, resolution, FPS, format & device'
             }
             className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all shadow-xs ${
-              isRecording
+              isStreaming || isRecording
                 ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-35 cursor-not-allowed'
                 : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] cursor-pointer active:scale-95'
             }`}
@@ -672,26 +674,26 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <Settings2 className="w-3.5 h-3.5" />
           </button>
 
-          {/* 3. Manual Live Controls (Sliders: Exposure, Gain, Focus, Brightness, Contrast) - Disabled while recording */}
+          {/* 3. Manual Live Controls (Sliders: Exposure, Gain, Focus, Brightness, Contrast) - Disabled while streaming or recording (Only enabled in IDLE / Standby) */}
           {camera.controlMode === 'manual' && !connectionError && (
             <button
               onClick={() => {
-                if (isRecording || !isStreaming) return;
+                if (isStreaming || isRecording) return;
                 setIsTuningOpen((prev) => !prev);
                 onOpenControls?.(camera);
               }}
-              disabled={isRecording || !isStreaming}
+              disabled={isStreaming || isRecording}
               title={
                 isRecording
                   ? 'Camera controls are disabled while recording is active'
-                  : !isStreaming
-                  ? 'Start stream first to adjust camera controls'
+                  : isStreaming
+                  ? 'Camera controls are disabled while streaming is active'
                   : isTuningOpen
                   ? 'Close image tuning'
                   : 'Adjust exposure, gain, focus & brightness'
               }
               className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all shadow-xs ${
-                isRecording || !isStreaming
+                isStreaming || isRecording
                   ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-35 cursor-not-allowed'
                   : isTuningOpen
                   ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] border-[var(--btn-primary-bg)] shadow-md ring-2 ring-[var(--accent-pond)]/30 cursor-pointer active:scale-95'
