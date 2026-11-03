@@ -313,33 +313,24 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
 
   return (
     <div
-      className="absolute right-2.5 bottom-2.5 z-40 w-[260px] sm:w-[275px] max-w-[calc(100%-20px)] max-h-[calc(100%-20px)] overflow-y-auto rounded-2xl bg-[var(--bg-card)]/95 dark:bg-slate-900/95 backdrop-blur-md border border-[var(--border-color)] dark:border-slate-700 shadow-2xl p-2.5 flex flex-col gap-1.5 select-none animate-in fade-in zoom-in-95 duration-150 text-[var(--text-primary)]"
+      className="absolute right-2 bottom-2 z-40 w-[245px] sm:w-[260px] max-w-[calc(100%-16px)] max-h-[calc(100%-16px)] overflow-y-auto rounded-xl bg-[var(--bg-card)]/95 dark:bg-slate-900/95 backdrop-blur-md border border-[var(--border-color)] dark:border-slate-700 shadow-2xl p-2 flex flex-col gap-1 select-none animate-in fade-in zoom-in-95 duration-150 text-[var(--text-primary)]"
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
     >
-      {/* ── 1. Popover Header ────────────────────────────────────────── */}
-      <div className="flex items-center justify-between pb-1.5 border-b border-[var(--border-color)]">
+      {/* ── 1. Popover Header (Reset removed as requested, only minimize & close) ── */}
+      <div className="flex items-center justify-between pb-1 border-b border-[var(--border-color)]">
         <div className="flex items-center gap-1.5 min-w-0">
-          <SlidersHorizontal className="w-3.5 h-3.5 text-[var(--accent-pond)] shrink-0" />
-          <h3 className="font-bold text-xs text-[var(--text-primary)] truncate tracking-tight">
+          <SlidersHorizontal className="w-3 h-3 text-[var(--accent-pond)] shrink-0" />
+          <h3 className="font-bold text-[11px] text-[var(--text-primary)] truncate tracking-tight">
             {cameraName ? `${cameraName} Tuning` : `Camera 0${cameraIndex} Tuning`}
           </h3>
-          <span className="px-1 py-0.2 rounded text-[9px] font-mono font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30 shrink-0">
+          <span className="px-1 py-0.2 rounded text-[8.5px] font-mono font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30 shrink-0">
             CAM {cameraIndex}
           </span>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          <button
-            type="button"
-            onClick={handleReset}
-            title="Reset sliders to database calibration"
-            className="text-[10px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] flex items-center gap-0.5 font-medium transition-colors cursor-pointer"
-          >
-            <RotateCcw className="w-2.5 h-2.5" />
-            <span>Reset</span>
-          </button>
+        <div className="flex items-center gap-0.5 shrink-0">
           <button
             type="button"
             onClick={() => setIsMinimized(true)}
@@ -360,14 +351,13 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
       </div>
 
       {/* ── 2. Sensor Gain (ISO) ─────────────────────────────────────── */}
-      <div className="p-1.5 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-1">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1 text-[11px] font-bold text-[var(--text-primary)]">
-            <Zap className="w-3 h-3 text-amber-500 fill-amber-500/20" />
+      <div className="py-0.5 px-1.5 rounded-md bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
+        <div className="flex items-center justify-between leading-none mb-0.5">
+          <div className="flex items-center gap-1 text-[10px] font-bold text-[var(--text-primary)]">
+            <Zap className="w-2.5 h-2.5 text-amber-500 fill-amber-500/20" />
             <span>Gain</span>
-            <span className="text-[9px] text-[var(--text-secondary)] font-mono font-normal">(100-1600)</span>
           </div>
-          <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+          <span className="font-mono text-[9.5px] font-bold text-amber-600 dark:text-amber-400">
             ISO {gain}
           </span>
         </div>
@@ -379,19 +369,18 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           value={gain}
           onChange={(e) => handleGainChange(parseInt(e.target.value, 10))}
           style={getSliderStyle(gain, 100, 1600)}
-          className="w-full h-1 rounded-lg cursor-pointer"
+          className="w-full h-1 rounded cursor-pointer block"
         />
       </div>
 
       {/* ── 3. Focus Lens ────────────────────────────────────────────── */}
-      <div className="p-1.5 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-1">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1 text-[11px] font-bold text-[var(--text-primary)]">
-            <Focus className="w-3 h-3 text-[var(--accent-pond)]" />
+      <div className="py-0.5 px-1.5 rounded-md bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
+        <div className="flex items-center justify-between leading-none mb-0.5">
+          <div className="flex items-center gap-1 text-[10px] font-bold text-[var(--text-primary)]">
+            <Focus className="w-2.5 h-2.5 text-[var(--accent-pond)]" />
             <span>Focus</span>
-            <span className="text-[9px] text-[var(--text-secondary)] font-mono font-normal">(0-255)</span>
           </div>
-          <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30">
+          <span className="font-mono text-[9.5px] font-bold text-[var(--accent-pond)]">
             {config.focusAvailable === false ? 'Auto' : focus}
           </span>
         </div>
@@ -404,19 +393,18 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           disabled={config.focusAvailable === false}
           onChange={(e) => handleFocusChange(parseInt(e.target.value, 10))}
           style={getSliderStyle(focus, 0, 255)}
-          className="w-full h-1 rounded-lg cursor-pointer disabled:opacity-40"
+          className="w-full h-1 rounded cursor-pointer disabled:opacity-40 block"
         />
       </div>
 
       {/* ── 4. Exposure Shutter ──────────────────────────────────────── */}
-      <div className="p-1.5 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-1">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1 text-[11px] font-bold text-[var(--text-primary)]">
-            <Sun className="w-3 h-3 text-[var(--accent-pond)]" />
+      <div className="py-0.5 px-1.5 rounded-md bg-[var(--bg-card-subtle)] border border-[var(--border-color)]">
+        <div className="flex items-center justify-between leading-none mb-0.5">
+          <div className="flex items-center gap-1 text-[10px] font-bold text-[var(--text-primary)]">
+            <Sun className="w-2.5 h-2.5 text-[var(--accent-pond)]" />
             <span>Exposure</span>
-            <span className="text-[9px] text-[var(--text-secondary)] font-mono font-normal">(1-33ms)</span>
           </div>
-          <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30">
+          <span className="font-mono text-[9.5px] font-bold text-[var(--accent-pond)]">
             {exposure} ms
           </span>
         </div>
@@ -428,16 +416,16 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           value={exposure}
           onChange={(e) => handleExposureChange(parseInt(e.target.value, 10))}
           style={getSliderStyle(exposure, 1, 33)}
-          className="w-full h-1 rounded-lg cursor-pointer"
+          className="w-full h-1 rounded cursor-pointer block"
         />
       </div>
 
       {/* ── 5. Tone (Brightness & Contrast side-by-side) ─────────────── */}
-      <div className="p-1.5 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] grid grid-cols-2 gap-2">
+      <div className="py-0.5 px-1.5 rounded-md bg-[var(--bg-card-subtle)] border border-[var(--border-color)] grid grid-cols-2 gap-2">
         <div>
-          <div className="flex items-center justify-between text-[10px] font-medium text-[var(--text-secondary)] mb-0.5">
+          <div className="flex items-center justify-between text-[9.5px] font-bold text-[var(--text-secondary)] leading-none mb-0.5">
             <span>Brightness</span>
-            <span className="font-mono font-bold text-[var(--accent-pond)] text-[9.5px]">
+            <span className="font-mono font-bold text-[var(--accent-pond)]">
               {brightness > 0 ? `+${brightness}` : brightness}
             </span>
           </div>
@@ -449,13 +437,13 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
             value={brightness}
             onChange={(e) => handleBrightnessChange(parseInt(e.target.value, 10))}
             style={getSliderStyle(brightness, -50, 50)}
-            className="w-full h-1 rounded-lg cursor-pointer"
+            className="w-full h-1 rounded cursor-pointer block"
           />
         </div>
         <div>
-          <div className="flex items-center justify-between text-[10px] font-medium text-[var(--text-secondary)] mb-0.5">
+          <div className="flex items-center justify-between text-[9.5px] font-bold text-[var(--text-secondary)] leading-none mb-0.5">
             <span>Contrast</span>
-            <span className="font-mono font-bold text-[var(--accent-pond)] text-[9.5px]">{contrast}</span>
+            <span className="font-mono font-bold text-[var(--accent-pond)]">{contrast}</span>
           </div>
           <input
             type="range"
@@ -465,80 +453,63 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
             value={contrast}
             onChange={(e) => handleContrastChange(parseInt(e.target.value, 10))}
             style={getSliderStyle(contrast, 0, 100)}
-            className="w-full h-1 rounded-lg cursor-pointer"
+            className="w-full h-1 rounded cursor-pointer block"
           />
         </div>
       </div>
 
       {/* ── 6. Presets Row ───────────────────────────────────────────── */}
-      <div className="flex items-center gap-1 pt-0.5">
-        <span className="text-[10px] font-bold text-[var(--text-secondary)] shrink-0">Presets:</span>
+      <div className="flex items-center gap-1">
+        <span className="text-[9.5px] font-bold text-[var(--text-secondary)] shrink-0">Presets:</span>
         <div className="flex items-center gap-1 flex-1">
-          <button
-            type="button"
-            onClick={() => handleApplyPreset('clean')}
-            className={`flex-1 py-0.5 px-1 rounded-lg text-[9.5px] font-bold transition-all cursor-pointer ${
-              activePreset === 'clean'
-                ? 'bg-[var(--accent-pond)] text-white shadow-xs'
-                : 'bg-[var(--bg-card-subtle)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] border border-[var(--border-color)]'
-            }`}
-          >
-            Clean
-          </button>
-          <button
-            type="button"
-            onClick={() => handleApplyPreset('default')}
-            className={`flex-1 py-0.5 px-1 rounded-lg text-[9.5px] font-bold transition-all cursor-pointer ${
-              activePreset === 'default'
-                ? 'bg-[var(--accent-pond)] text-white shadow-xs'
-                : 'bg-[var(--bg-card-subtle)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] border border-[var(--border-color)]'
-            }`}
-          >
-            Default
-          </button>
-          <button
-            type="button"
-            onClick={() => handleApplyPreset('night')}
-            className={`flex-1 py-0.5 px-1 rounded-lg text-[9.5px] font-bold transition-all cursor-pointer ${
-              activePreset === 'night'
-                ? 'bg-[var(--accent-pond)] text-white shadow-xs'
-                : 'bg-[var(--bg-card-subtle)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] border border-[var(--border-color)]'
-            }`}
-          >
-            Night
-          </button>
+          {(['clean', 'default', 'night'] as const).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => handleApplyPreset(p)}
+              className={`flex-1 h-5 px-1 rounded text-[9px] font-bold transition-all cursor-pointer capitalize ${
+                activePreset === p
+                  ? 'bg-[var(--accent-pond)] text-white shadow-xs'
+                  : 'bg-[var(--bg-card-subtle)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] border border-[var(--border-color)]'
+              }`}
+            >
+              {p}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* ── 7. Bottom Action Buttons ─────────────────────────────────── */}
-      <div className="flex items-center gap-1.5 pt-1 border-t border-[var(--border-color)]">
+      {/* ── 7. Bottom Action Buttons (Reset is down here) ────────────── */}
+      <div className="flex items-center gap-1.5 pt-0.5 border-t border-[var(--border-color)]">
         <button
           type="button"
           onClick={handleReset}
-          className="h-7.5 px-3 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--btn-secondary-text)] font-bold text-xs transition-colors cursor-pointer active:scale-95 shadow-2xs"
+          title="Reset to database calibration"
+          className="h-6.5 px-2.5 rounded-lg bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--btn-secondary-text)] font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer active:scale-95 shadow-2xs"
         >
-          Reset
+          <RotateCcw className="w-2.5 h-2.5" />
+          <span>Reset</span>
         </button>
 
         <button
           type="button"
           onClick={handleSaveSettings}
           disabled={isSaving}
-          className="flex-1 h-7.5 rounded-xl bg-[var(--btn-primary-bg)] hover:bg-[var(--btn-primary-hover)] text-[var(--btn-primary-text)] border border-[var(--border-color)] font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+          className="flex-1 h-6.5 rounded-lg bg-[var(--btn-primary-bg)] hover:bg-[var(--btn-primary-hover)] text-[var(--btn-primary-text)] border border-[var(--border-color)] font-bold text-[11px] flex items-center justify-center gap-1 shadow-xs transition-all cursor-pointer disabled:opacity-50 active:scale-95"
         >
           {isSaving ? (
             <>
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <Loader2 className="w-3 h-3 animate-spin" />
               <span>Saving...</span>
             </>
           ) : saveSuccess ? (
             <>
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
+              <CheckCircle2 className="w-3 h-3 text-emerald-300" />
               <span>Saved!</span>
             </>
           ) : (
             <>
-              <Save className="w-3.5 h-3.5" />
+              <Save className="w-3 h-3" />
               <span>Save Settings</span>
             </>
           )}
