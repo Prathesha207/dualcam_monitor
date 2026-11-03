@@ -257,8 +257,8 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                       : 'cursor-pointer active:scale-95 ' +
                         (camera.controlMode === 'manual'
                           ? isTuningOpen
-                            ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/40 ring-1 ring-cyan-500/20 shadow-2xs'
-                            : 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20'
+                            ? 'bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border-[var(--accent-pond)]/40 ring-1 ring-[var(--accent-pond)]/20 shadow-2xs'
+                            : 'bg-[var(--accent-pond-subtle)]/60 text-[var(--accent-pond)] border-[var(--accent-pond)]/30 hover:bg-[var(--accent-pond-subtle)]'
                           : 'bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)] hover:border-[var(--accent-pond)]')
                   }`}
                 >
@@ -591,7 +591,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             onClick={handleSnapshotClick}
             disabled={!isStreaming || !isEnabled}
             title={!isStreaming ? 'Start stream first to take snapshot' : 'Take instant high-resolution snapshot'}
-            className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all cursor-pointer active:scale-95 shadow-xs disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none"
+            className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--text-primary)] transition-all cursor-pointer active:scale-95 shadow-xs disabled:opacity-35 disabled:cursor-not-allowed focus:outline-none"
           >
             <Camera className="w-3.5 h-3.5" />
           </button>
@@ -648,7 +648,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 isRecording || !isStreaming
                   ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-35 cursor-not-allowed'
                   : isTuningOpen
-                  ? 'bg-cyan-600 text-white border-cyan-500 shadow-md ring-2 ring-cyan-500/30 cursor-pointer active:scale-95'
+                  ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] border-[var(--btn-primary-bg)] shadow-md ring-2 ring-[var(--accent-pond)]/30 cursor-pointer active:scale-95'
                   : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] cursor-pointer active:scale-95'
               }`}
             >

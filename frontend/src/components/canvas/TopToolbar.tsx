@@ -32,7 +32,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
     <div className="absolute top-0 left-0 right-0 p-2 sm:p-3 flex items-center justify-between gap-2 pointer-events-none z-30 max-w-full overflow-hidden select-none">
       {/* Top-Left: Live Stream Status */}
       <div className="pointer-events-auto flex items-center gap-2 shrink-0">
-        <div className="flex items-center h-8 px-3 rounded-xl bg-[var(--bg-card)]/95 dark:bg-slate-900/90 backdrop-blur-md border border-[var(--border-color)] shadow-xs select-none">
+        <div className="flex items-center h-8 px-3 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-xs select-none">
           {isStreaming ? (
             <div className="flex items-center gap-2 text-emerald-500 font-bold text-xs sm:text-sm">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]" />
@@ -68,7 +68,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
           <button
             onClick={onSnapshot}
             title="Take Snapshot"
-            className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--bg-card)]/95 dark:bg-slate-900/90 backdrop-blur-md border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)] shadow-xs transition-colors cursor-pointer"
+            className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] shadow-xs transition-colors cursor-pointer"
           >
             <CameraIcon className="w-4 h-4" />
           </button>
@@ -77,7 +77,7 @@ export const TopToolbar: React.FC<TopToolbarProps> = ({
         <button
           onClick={onToggleFullscreen}
           title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-          className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--bg-card)]/95 dark:bg-slate-900/90 backdrop-blur-md border border-[var(--border-color)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-card)] shadow-xs transition-colors cursor-pointer"
+          className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)] shadow-xs transition-colors cursor-pointer"
         >
           {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Expand className="w-4 h-4" />}
         </button>

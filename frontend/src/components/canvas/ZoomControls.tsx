@@ -37,7 +37,7 @@ export const ZoomControls: React.FC<ZoomControlsProps> = ({
 
   return (
     <div
-      className={`pointer-events-auto flex items-center gap-1 sm:gap-1.5 p-1 rounded-2xl bg-[var(--bg-card)]/95 dark:bg-slate-900/90 backdrop-blur-md border border-[var(--border-color)] dark:border-slate-700/80 shadow-xl select-none z-30 transition-all ${className}`}
+      className={`pointer-events-auto flex items-center gap-1 sm:gap-1.5 p-1 rounded-2xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-xl select-none z-30 transition-all ${className}`}
       onClick={(e) => e.stopPropagation()}
     >
       {/* Zoom Out Button */}
@@ -49,8 +49,8 @@ export const ZoomControls: React.FC<ZoomControlsProps> = ({
         aria-label="Zoom Out"
         className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-xl transition-all cursor-pointer ${
           zoom <= 1.0
-            ? 'opacity-35 cursor-not-allowed text-slate-400 dark:text-slate-600'
-            : 'text-[var(--text-primary)] hover:bg-cyan-500/15 hover:text-cyan-500 dark:hover:text-cyan-400 active:scale-95'
+            ? 'opacity-35 cursor-not-allowed text-[var(--text-muted)]'
+            : 'text-[var(--text-primary)] hover:bg-[var(--accent-pond-subtle)] hover:text-[var(--accent-pond)] active:scale-95'
         }`}
       >
         <ZoomOut className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.2]" />
@@ -64,12 +64,12 @@ export const ZoomControls: React.FC<ZoomControlsProps> = ({
         aria-label={`Zoom level: ${percentage} percent`}
         className={`h-7 sm:h-8 px-2 sm:px-2.5 rounded-xl font-mono text-[11px] sm:text-xs font-bold tracking-wide flex items-center gap-1 cursor-pointer transition-all ${
           isZoomed
-            ? 'bg-cyan-500/20 border border-cyan-500/50 text-cyan-500 dark:text-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.35)]'
+            ? 'bg-[var(--accent-pond-subtle)] border border-[var(--accent-pond)]/40 text-[var(--accent-pond)] shadow-2xs'
             : 'text-[var(--text-primary)] hover:bg-[var(--btn-secondary-hover)]'
         }`}
       >
         <span>{percentage}%</span>
-        {isZoomed && <Move className="w-2.5 h-2.5 opacity-80 animate-pulse text-cyan-400" />}
+        {isZoomed && <Move className="w-2.5 h-2.5 opacity-80 animate-pulse text-[var(--accent-pond)]" />}
       </button>
 
       {/* Zoom In Button */}
@@ -81,8 +81,8 @@ export const ZoomControls: React.FC<ZoomControlsProps> = ({
         aria-label="Zoom In"
         className={`w-7 h-7 sm:w-8 sm:h-8 flex items-center justify-center rounded-xl transition-all cursor-pointer ${
           zoom >= 5.0
-            ? 'opacity-35 cursor-not-allowed text-slate-400 dark:text-slate-600'
-            : 'text-[var(--text-primary)] hover:bg-cyan-500/15 hover:text-cyan-500 dark:hover:text-cyan-400 active:scale-95'
+            ? 'opacity-35 cursor-not-allowed text-[var(--text-muted)]'
+            : 'text-[var(--text-primary)] hover:bg-[var(--accent-pond-subtle)] hover:text-[var(--accent-pond)] active:scale-95'
         }`}
       >
         <ZoomIn className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.2]" />
@@ -95,7 +95,7 @@ export const ZoomControls: React.FC<ZoomControlsProps> = ({
           onClick={onResetZoom}
           title="Reset Zoom to 100% (0) [Double-click]"
           aria-label="Reset Zoom"
-          className="h-7 sm:h-8 px-2 flex items-center gap-1 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-500 dark:text-amber-400 font-bold text-[10px] sm:text-[11px] transition-all active:scale-95 cursor-pointer shadow-xs animate-in fade-in zoom-in-95 duration-150"
+          className="h-7 sm:h-8 px-2 flex items-center gap-1 rounded-xl bg-[var(--accent-pond-subtle)] hover:opacity-90 border border-[var(--accent-pond)]/40 text-[var(--accent-pond)] font-bold text-[10px] sm:text-[11px] transition-all active:scale-95 cursor-pointer shadow-xs animate-in fade-in zoom-in-95 duration-150"
         >
           <RotateCcw className="w-3 h-3 stroke-[2.2]" />
           {!isCompact && <span>1x</span>}

@@ -295,7 +295,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
   if (isMinimized) {
     return (
       <div
-        className="absolute right-2.5 bottom-2.5 z-40 rounded-xl bg-[var(--bg-card)]/90 dark:bg-slate-900/90 backdrop-blur-md border border-[var(--border-color)] dark:border-slate-700 shadow-lg px-2.5 py-1.5 flex items-center gap-2 select-none animate-in fade-in duration-100 text-[var(--text-primary)]"
+        className="absolute right-2.5 bottom-2.5 z-40 rounded-xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-lg px-2.5 py-1.5 flex items-center gap-2 select-none animate-in fade-in duration-100 text-[var(--text-primary)]"
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
         onDoubleClick={(e) => e.stopPropagation()}
@@ -333,7 +333,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
 
   return (
     <div
-      className="absolute right-2.5 bottom-2.5 z-40 w-[235px] sm:w-[245px] max-w-[calc(100%-20px)] max-h-[calc(100%-20px)] overflow-y-auto rounded-2xl bg-[var(--bg-card)]/95 dark:bg-slate-900/95 backdrop-blur-md border border-[var(--border-color)] dark:border-slate-700 shadow-2xl p-2 flex flex-col gap-1 select-none animate-in fade-in zoom-in-95 duration-150 text-[var(--text-primary)]"
+      className="absolute right-2.5 bottom-2.5 z-40 w-[235px] sm:w-[245px] max-w-[calc(100%-20px)] max-h-[calc(100%-20px)] overflow-y-auto rounded-2xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-2xl p-2 flex flex-col gap-1 select-none animate-in fade-in zoom-in-95 duration-150 text-[var(--text-primary)]"
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
