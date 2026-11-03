@@ -21,6 +21,38 @@ logger = logging.getLogger("oak-camera")
 _depthai_device_enum_lock = threading.Lock()
 
 
+def _extract_device_mxid(device_or_info) -> str:
+    """Extract hardware MXID / Serial Number from dai.Device or dai.DeviceInfo."""
+    if device_or_info is None:
+        return ""
+    if hasattr(device_or_info, "getMxId"):
+        try:
+            val = str(device_or_info.getMxId() or "").strip()
+            if val:
+                return val
+        except Exception:
+            pass
+    if hasattr(device_or_info, "getXLinkDeviceDesc"):
+        try:
+            desc = device_or_info.getXLinkDeviceDesc()
+            val = str(getattr(desc, "mxid", "") or "").strip()
+            if val:
+                return val
+        except Exception:
+            pass
+    if hasattr(device_or_info, "getDeviceId"):
+        try:
+            val = str(device_or_info.getDeviceId() or "").strip()
+            if val:
+                return val
+        except Exception:
+            pass
+    val = str(getattr(device_or_info, "deviceId", "") or "").strip()
+    if val:
+        return val
+    return str(getattr(device_or_info, "name", "") or "").strip()
+
+
 class OakCameraService:
     """Single OAK-D camera service for live streaming and recording.
 
@@ -42,6 +74,7 @@ class OakCameraService:
         # ---- Device ----
         self.device: dai.Device | None = None
         self.is_connected: bool = False
+        self._connected_mxid: str | None = None
         self._last_device_scan_time: float = 0.0
         self._cached_device_detected: bool = False
         self._cached_devices_count: int = 0
@@ -187,29 +220,34 @@ class OakCameraService:
                     )
                     return False
                 logger.info(f"[DEVICE] Resolved connection target: {device_info}")
-                try:
-                    self.device = await loop.run_in_executor(None, dai.Device, device_info)
-                except Exception as dev_err:
-                    err_text = str(dev_err)
-                    # If device not found by IP, check if it is actually connected via USB
-                    if ("cannot find" in err_text.lower() or "not found" in err_text.lower()) and ("." in str(ip)):
-                        with _depthai_device_enum_lock:
-                            devices = dai.Device.getAllAvailableDevices()
-                            unclaimed = [d for d in devices if (getattr(d, "mxid", "") or "") not in claimed]
-                            if len(unclaimed) == 1:
-                                usb_dev = unclaimed[0]
-                                logger.info(
-                                    f"[DEVICE] IP '{ip}' not reachable over Ethernet, but found USB OAK camera "
-                                    f"(mxid={getattr(usb_dev, 'mxid', 'USB')}). Connecting via USB..."
-                                )
-                                self.device = await loop.run_in_executor(None, dai.Device, usb_dev)
-                            else:
-                                raise dev_err
-                    else:
-                        raise dev_err
+                self.device = await loop.run_in_executor(None, dai.Device, device_info)
                 self.device.setLogLevel(dai.LogLevel.WARN)
                 self.device.setLogOutputLevel(dai.LogLevel.WARN)
                 self.is_connected = True
+
+                # Hardware collision detection: ensure this physical camera is not already active as the other camera
+                dev_mxid = _extract_device_mxid(self.device).lower()
+                if dev_mxid:
+                    self._connected_mxid = dev_mxid
+                    if dev_mxid in claimed:
+                        logger.warning(
+                            f"[DEVICE] Camera {self._active_camera_id} connected to {ip}, "
+                            f"but hardware serial '{dev_mxid}' is already claimed by another active camera!"
+                        )
+                        try:
+                            await loop.run_in_executor(None, self.device.close)
+                        except Exception:
+                            pass
+                        self.device = None
+                        self.is_connected = False
+                        self._connected_mxid = None
+                        clean_msg = (
+                            f"Camera hardware (Serial: {dev_mxid}) is already in use by another camera via USB or PoE. "
+                            "Dual cameras must use separate physical hardware."
+                        )
+                        self._last_connection_error = clean_msg
+                        realtime_log_service.add_log("camera", "CAMERA", clean_msg, "error")
+                        return False
 
                 try:
                     usb_speed = self.device.getUsbSpeed()
@@ -282,6 +320,7 @@ class OakCameraService:
                 logger.debug(f"[DISCONNECT] Device close error: {e}")
             finally:
                 self.device = None
+                self._connected_mxid = None
         self.is_connected = False
         self._last_connection_error = None
 
@@ -301,7 +340,7 @@ class OakCameraService:
 
                 unclaimed_usb = [
                     d for d in devices
-                    if (getattr(d, "mxid", "") or "") not in excludes
+                    if _extract_device_mxid(d).lower() not in excludes
                 ]
                 if unclaimed_usb:
                     return unclaimed_usb[0]
@@ -333,15 +372,20 @@ class OakCameraService:
             with _depthai_device_enum_lock:
                 devices = dai.Device.getAllAvailableDevices()
                 for d in devices:
-                    mxid = getattr(d, "mxid", "") or ""
-                    name = getattr(d, "name", "") or ""
+                    mxid = _extract_device_mxid(d).lower()
+                    name = str(getattr(d, "name", "") or "").strip().lower()
                     desc_name = ""
                     try:
                         desc = d.getXLinkDeviceDesc()
-                        desc_name = getattr(desc, "name", "") or ""
+                        desc_name = str(getattr(desc, "name", "") or "").strip().lower()
                     except Exception:
                         pass
-                    if valid_ip in {name, desc_name, mxid} and mxid not in excludes:
+                    if mxid and mxid in excludes and valid_ip.lower() in {name, desc_name, mxid}:
+                        raise RuntimeError(
+                            f"Camera at {value} (Serial: {mxid}) is already in use by another camera via USB or PoE. "
+                            "Dual cameras must use separate physical hardware."
+                        )
+                    if valid_ip.lower() in {name, desc_name, mxid} and mxid not in excludes:
                         logger.info(f"[DEVICE] Found matching device in enumeration for '{valid_ip}': {d}")
                         return d
 
@@ -358,16 +402,16 @@ class OakCameraService:
                 raise RuntimeError(f"No OAK device found matching '{value}' over USB or network.")
 
             for d in devices:
-                mxid = getattr(d, "mxid", "") or ""
-                name = getattr(d, "name", "") or ""
+                mxid = _extract_device_mxid(d).lower()
+                name = str(getattr(d, "name", "") or "").strip().lower()
                 desc_name = ""
                 try:
                     desc = d.getXLinkDeviceDesc()
-                    desc_name = getattr(desc, "name", "") or ""
+                    desc_name = str(getattr(desc, "name", "") or "").strip().lower()
                 except Exception:
                     pass
-                if value in {mxid, name, desc_name}:
-                    if mxid in excludes:
+                if value.lower() in {mxid, name, desc_name}:
+                    if mxid in excludes or name in excludes:
                         raise RuntimeError(f"Camera hardware ({value}) is already in use by another camera.")
                     return d
 
@@ -1714,12 +1758,12 @@ class OakCameraManager:
                 if exclude_id is not None and cid == exclude_id:
                     continue
                 if inst.device is not None and inst.is_connected:
-                    try:
-                        mxid = inst.device.getMxId()
-                        if mxid:
-                            claimed.add(str(mxid))
-                    except Exception:
-                        pass
+                    dev_mxid = _extract_device_mxid(inst.device).lower()
+                    if dev_mxid:
+                        claimed.add(dev_mxid)
+                    conn_mxid = getattr(inst, "_connected_mxid", None)
+                    if conn_mxid:
+                        claimed.add(str(conn_mxid).strip().lower())
                 cip = getattr(inst, "_configured_ip", None)
                 if cip:
                     claimed.add(str(cip).strip().lower())

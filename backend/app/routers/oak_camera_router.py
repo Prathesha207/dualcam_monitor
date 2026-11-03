@@ -136,7 +136,11 @@ async def _serve_mjpeg(request: Request, camera_id: Optional[int] = None, db: Se
                 cam = None
                 if camera_id:
                     cam = db.query(Camera).filter(Camera.id == camera_id).first()
-                if not cam:
+                    if not cam:
+                        all_cams = db.query(Camera).order_by(Camera.id).all()
+                        if 1 <= camera_id <= len(all_cams):
+                            cam = all_cams[camera_id - 1]
+                else:
                     cam = camera_service.get_camera_config(db)
                 if cam and cam.is_enabled is not False:
                     logger.info(f"[STREAM] Auto-starting camera ID {cam.id} ({cam.ip_address}) for stream")

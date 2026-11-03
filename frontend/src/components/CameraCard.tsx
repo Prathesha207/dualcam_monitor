@@ -166,7 +166,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
     return `${String(mins).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   };
 
-  const streamUrl = `${cameraService.getStreamUrl(camera.id)}?t=${streamCacheBuster}`;
+  const streamUrl = `${cameraService.getStreamUrl(cameraId)}?t=${streamCacheBuster}`;
 
   const handleSnapshotClick = () => {
     if (onSnapshot) {
