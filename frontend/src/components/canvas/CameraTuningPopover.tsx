@@ -259,6 +259,16 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         save_to_db: true,
       });
 
+      onUpdateConfig?.({
+        exposure,
+        gain,
+        iso: gain,
+        focus,
+        brightness,
+        contrast,
+        controlMode: 'manual',
+      });
+
       // Update initialRef so subsequent Reset reverts to these newly saved settings
       initialRef.current = { exposure, gain, focus, brightness, contrast };
 
