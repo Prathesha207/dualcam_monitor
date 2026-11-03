@@ -9,6 +9,7 @@ interface CameraTuningPopoverProps {
   cameraName: string;
   config: CameraConfig;
   isLive?: boolean;
+  isRecording?: boolean;
   onClose: () => void;
   onUpdateConfig?: (partial: Partial<CameraConfig>) => void;
 }
@@ -19,6 +20,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
   cameraName,
   config,
   isLive = true,
+  isRecording = false,
   onClose,
   onUpdateConfig,
 }) => {
@@ -104,7 +106,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         if (!throttleTimerRef.current) {
           throttleTimerRef.current = setTimeout(() => {
             throttleTimerRef.current = null;
-            if (pendingUpdateRef.current) {
+            if (pendingUpdateRef.current && !inFlightRef.current) {
               const next = pendingUpdateRef.current;
               pendingUpdateRef.current = null;
               dispatchToBackend(next);
@@ -116,8 +118,9 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
     [dispatchToBackend]
   );
 
-  // Sliders Change Handlers
+  // Sliders Change Handlers - Locked when recording is active
   const handleGainChange = (val: number) => {
+    if (isRecording) return;
     setGain(val);
     setActivePreset(null);
     onUpdateConfig?.({ gain: val, iso: val, controlMode: 'manual' });
@@ -125,6 +128,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
   };
 
   const handleFocusChange = (val: number) => {
+    if (isRecording) return;
     setFocus(val);
     setActivePreset(null);
     onUpdateConfig?.({ focus: val, controlMode: 'manual' });
@@ -132,6 +136,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
   };
 
   const handleExposureChange = (val: number) => {
+    if (isRecording) return;
     setExposure(val);
     setActivePreset(null);
     onUpdateConfig?.({ exposure: val, controlMode: 'manual' });
@@ -139,6 +144,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
   };
 
   const handleBrightnessChange = (val: number) => {
+    if (isRecording) return;
     setBrightness(val);
     setActivePreset(null);
     onUpdateConfig?.({ brightness: val, controlMode: 'manual' });
@@ -146,6 +152,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
   };
 
   const handleContrastChange = (val: number) => {
+    if (isRecording) return;
     setContrast(val);
     setActivePreset(null);
     onUpdateConfig?.({ contrast: val, controlMode: 'manual' });
@@ -154,6 +161,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
 
   // Presets Handlers
   const handleApplyPreset = (presetName: 'clean' | 'default' | 'night') => {
+    if (isRecording) return;
     setActivePreset(presetName);
     let newGain = gain;
     let newExp = exposure;
@@ -206,6 +214,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
 
   // Reset to initial values
   const handleReset = () => {
+    if (isRecording) return;
     setActivePreset(null);
     const { exposure: initExp, gain: initGain, focus: initFocus, brightness: initB, contrast: initC } = initialRef.current;
     setExposure(initExp);
@@ -236,6 +245,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
 
   // Save Settings to Database
   const handleSaveSettings = async () => {
+    if (isRecording) return;
     setIsSaving(true);
     setSaveError(null);
     try {
@@ -350,6 +360,14 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         </div>
       </div>
 
+      {/* Recording Lock Notice */}
+      {isRecording && (
+        <div className="py-1 px-2 rounded-lg bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-[10px] font-bold flex items-center justify-center gap-1.5 animate-pulse">
+          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+          <span>Recording Active • Controls Locked</span>
+        </div>
+      )}
+
       {/* 2. Sensor Gain (ISO) */}
       <div className="py-1 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-0.5">
         <div className="flex items-center justify-between">
@@ -367,9 +385,10 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           max={1600}
           step={10}
           value={gain}
+          disabled={isRecording}
           onChange={(e) => handleGainChange(parseInt(e.target.value, 10))}
           style={getSliderStyle(gain, 100, 1600)}
-          className="w-full h-1 rounded-lg cursor-pointer"
+          className={`w-full h-1 rounded-lg ${isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
         />
       </div>
 
@@ -390,10 +409,10 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           max={255}
           step={1}
           value={focus}
-          disabled={config.focusAvailable === false}
+          disabled={isRecording || config.focusAvailable === false}
           onChange={(e) => handleFocusChange(parseInt(e.target.value, 10))}
           style={getSliderStyle(focus, 0, 255)}
-          className="w-full h-1 rounded-lg cursor-pointer disabled:opacity-40"
+          className={`w-full h-1 rounded-lg ${isRecording || config.focusAvailable === false ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
         />
       </div>
 
@@ -414,9 +433,10 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           max={33}
           step={1}
           value={exposure}
+          disabled={isRecording}
           onChange={(e) => handleExposureChange(parseInt(e.target.value, 10))}
           style={getSliderStyle(exposure, 1, 33)}
-          className="w-full h-1 rounded-lg cursor-pointer"
+          className={`w-full h-1 rounded-lg ${isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
         />
       </div>
 
@@ -435,9 +455,10 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
             max={50}
             step={1}
             value={brightness}
+            disabled={isRecording}
             onChange={(e) => handleBrightnessChange(parseInt(e.target.value, 10))}
             style={getSliderStyle(brightness, -50, 50)}
-            className="w-full h-1 rounded-lg cursor-pointer"
+            className={`w-full h-1 rounded-lg ${isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
           />
         </div>
         <div>
@@ -451,9 +472,10 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
             max={100}
             step={1}
             value={contrast}
+            disabled={isRecording}
             onChange={(e) => handleContrastChange(parseInt(e.target.value, 10))}
             style={getSliderStyle(contrast, 0, 100)}
-            className="w-full h-1 rounded-lg cursor-pointer"
+            className={`w-full h-1 rounded-lg ${isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
           />
         </div>
       </div>
@@ -464,8 +486,11 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         <div className="flex items-center gap-1 flex-1">
           <button
             type="button"
+            disabled={isRecording}
             onClick={() => handleApplyPreset('clean')}
-            className={`flex-1 py-0.5 px-1 rounded-lg text-[9.5px] font-bold transition-all cursor-pointer ${
+            className={`flex-1 py-0.5 px-1 rounded-lg text-[9.5px] font-bold transition-all ${
+              isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+            } ${
               activePreset === 'clean'
                 ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                 : 'bg-[var(--bg-card-subtle)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] border border-[var(--border-color)]'
@@ -475,8 +500,11 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           </button>
           <button
             type="button"
+            disabled={isRecording}
             onClick={() => handleApplyPreset('default')}
-            className={`flex-1 py-0.5 px-1 rounded-lg text-[9.5px] font-bold transition-all cursor-pointer ${
+            className={`flex-1 py-0.5 px-1 rounded-lg text-[9.5px] font-bold transition-all ${
+              isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+            } ${
               activePreset === 'default'
                 ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                 : 'bg-[var(--bg-card-subtle)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] border border-[var(--border-color)]'
@@ -486,8 +514,11 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           </button>
           <button
             type="button"
+            disabled={isRecording}
             onClick={() => handleApplyPreset('night')}
-            className={`flex-1 py-0.5 px-1 rounded-lg text-[9.5px] font-bold transition-all cursor-pointer ${
+            className={`flex-1 py-0.5 px-1 rounded-lg text-[9.5px] font-bold transition-all ${
+              isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+            } ${
               activePreset === 'night'
                 ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                 : 'bg-[var(--bg-card-subtle)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] border border-[var(--border-color)]'
@@ -502,8 +533,13 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
       <div className="flex items-center gap-1.5 pt-1 border-t border-[var(--border-color)]">
         <button
           type="button"
+          disabled={isRecording}
           onClick={handleReset}
-          className="h-7 px-2.5 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--btn-secondary-text)] font-bold text-[11px] flex items-center gap-1 transition-colors cursor-pointer active:scale-95 shadow-2xs shrink-0"
+          className={`h-7 px-2.5 rounded-xl bg-[var(--btn-secondary-bg)] border border-[var(--btn-secondary-border)] text-[var(--btn-secondary-text)] font-bold text-[11px] flex items-center gap-1 transition-colors shadow-2xs shrink-0 ${
+            isRecording
+              ? 'opacity-40 cursor-not-allowed'
+              : 'hover:bg-[var(--btn-secondary-hover)] cursor-pointer active:scale-95'
+          }`}
         >
           <RotateCcw className="w-3 h-3" />
           <span>Reset</span>
@@ -511,9 +547,13 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
 
         <button
           type="button"
+          disabled={isSaving || isRecording}
           onClick={handleSaveSettings}
-          disabled={isSaving}
-          className="flex-1 h-7 rounded-xl bg-[var(--btn-primary-bg)] hover:bg-[var(--btn-primary-hover)] text-[var(--btn-primary-text)] border border-[var(--border-color)] font-bold text-[11px] flex items-center justify-center gap-1 shadow-xs transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+          className={`flex-1 h-7 rounded-xl bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] border border-[var(--border-color)] font-bold text-[11px] flex items-center justify-center gap-1 shadow-xs transition-all ${
+            isSaving || isRecording
+              ? 'opacity-40 cursor-not-allowed'
+              : 'hover:bg-[var(--btn-primary-hover)] cursor-pointer active:scale-95'
+          }`}
         >
           {isSaving ? (
             <>

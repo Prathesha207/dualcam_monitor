@@ -281,7 +281,7 @@ export default function App() {
             const msg = err?.message || `Failed to connect to camera ${id}`;
             setConnectionErrors((prev) => ({ ...prev, [id]: msg }));
             showToast('error', msg);
-            addLog(`Camera ${id} is unreachable: ${msg}`, 'error');
+            addLog(`Camera ${id} not found: ${msg}`, 'error');
           } finally {
             setStartingStates((prev) => ({ ...prev, [id]: false }));
             await refreshCameras();

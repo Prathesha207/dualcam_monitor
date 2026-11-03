@@ -79,6 +79,13 @@ export const CameraCard: React.FC<CameraCardProps> = ({
     !camera.ipAddress.toLowerCase().includes('usb')
   );
 
+  // Auto-close tuning popover if recording starts, stream stops, or connection error occurs
+  useEffect(() => {
+    if (isRecording || !isStreaming || connectionError) {
+      setIsTuningOpen(false);
+    }
+  }, [isRecording, isStreaming, connectionError]);
+
   // Canvas Zoom & Pan Hook (active when live stream is running)
   const {
     zoom,
@@ -200,7 +207,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               ) : connectionError ? (
                 <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 shrink-0">
                   <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                  UNREACHABLE
+                  NOT FOUND
                 </span>
               ) : isEnabled ? (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border-color)] shrink-0">
@@ -220,33 +227,44 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 </span>
               )}
 
-              {/* Mode Badge (Auto / Manual) - Clickable to toggle manual mode and tuning */}
-              <button
-                type="button"
-                onClick={() => {
-                  if (camera.controlMode !== 'manual') {
-                    onUpdateLiveControls?.(cameraId, { controlMode: 'manual' });
-                    setIsTuningOpen(true);
-                  } else {
-                    onUpdateLiveControls?.(cameraId, { controlMode: 'auto' });
-                    setIsTuningOpen(false);
+              {/* Mode Badge (Auto / Manual) - ONLY shown when camera is found and powered on */}
+              {!connectionError && isEnabled && (
+                <button
+                  type="button"
+                  disabled={isRecording || !isStreaming}
+                  onClick={() => {
+                    if (isRecording || !isStreaming) return;
+                    if (camera.controlMode !== 'manual') {
+                      onUpdateLiveControls?.(cameraId, { controlMode: 'manual' });
+                      setIsTuningOpen(true);
+                    } else {
+                      onUpdateLiveControls?.(cameraId, { controlMode: 'auto' });
+                      setIsTuningOpen(false);
+                    }
+                  }}
+                  title={
+                    isRecording
+                      ? 'Camera controls are locked while recording is active'
+                      : !isStreaming
+                      ? 'Start live stream first to tune camera controls'
+                      : camera.controlMode === 'manual'
+                      ? (isTuningOpen ? 'Close manual tuning' : 'Open manual tuning controls')
+                      : 'Click to enable Manual controls and open tuning popover'
                   }
-                }}
-                title={
-                  camera.controlMode === 'manual'
-                    ? (isTuningOpen ? 'Close manual tuning' : 'Open manual tuning controls')
-                    : 'Click to enable Manual controls and open tuning popover'
-                }
-                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase transition-all cursor-pointer active:scale-95 border ${
-                  camera.controlMode === 'manual'
-                    ? isTuningOpen
-                      ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/40 ring-1 ring-cyan-500/20 shadow-2xs'
-                      : 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20'
-                    : 'bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)] hover:border-[var(--accent-pond)]'
-                } shrink-0`}
-              >
-                {camera.controlMode?.toUpperCase() || 'AUTO'}
-              </button>
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase transition-all border shrink-0 ${
+                    isRecording || !isStreaming
+                      ? 'opacity-40 cursor-not-allowed bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border-color)]'
+                      : 'cursor-pointer active:scale-95 ' +
+                        (camera.controlMode === 'manual'
+                          ? isTuningOpen
+                            ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/40 ring-1 ring-cyan-500/20 shadow-2xs'
+                            : 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20'
+                          : 'bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)] hover:border-[var(--accent-pond)]')
+                  }`}
+                >
+                  {camera.controlMode?.toUpperCase() || 'AUTO'}
+                </button>
+              )}
             </div>
 
             {/* Hardware & Stream Details Subtitle */}
@@ -260,13 +278,19 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </div>
         </div>
 
-        {/* Right: Hardware Power Toggle - Show on Standby and Live Stream, Hide when Connecting or Unreachable */}
+        {/* Right: Hardware Power Toggle - Show on Standby and Live Stream, Hide when Connecting or Not Found */}
         {!isStarting && !connectionError && (
           <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => onToggleEnable(cameraId, isEnabled)}
+              onClick={() => {
+                if (isRecording) return;
+                onToggleEnable(cameraId, isEnabled);
+              }}
+              disabled={isRecording}
               title={
-                isStreaming
+                isRecording
+                  ? 'Cannot power off camera while recording is active'
+                  : isStreaming
                   ? 'Camera stream is active (Click to power down)'
                   : isEnabled
                     ? 'Camera in Standby (Click to power off)'
@@ -279,12 +303,15 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                     ? 'Power off camera'
                     : 'Power on camera'
               }
-              className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all cursor-pointer shadow-xs active:scale-95 ${
-                isStreaming
-                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
-                  : isEnabled
-                    ? 'bg-[var(--btn-secondary-bg)] hover:bg-amber-500/15 text-[var(--text-secondary)] hover:text-amber-500 border-[var(--border-color)] hover:border-amber-500/30'
-                    : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-emerald-500/10 hover:text-emerald-500 hover:border-emerald-500/30'
+              className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all shadow-xs ${
+                isRecording
+                  ? 'opacity-40 cursor-not-allowed bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-color)]'
+                  : 'cursor-pointer active:scale-95 ' +
+                    (isStreaming
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
+                      : isEnabled
+                        ? 'bg-[var(--btn-secondary-bg)] hover:bg-amber-500/15 text-[var(--text-secondary)] hover:text-amber-500 border-[var(--border-color)] hover:border-amber-500/30'
+                        : 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30 hover:bg-emerald-500/10 hover:text-emerald-500 hover:border-emerald-500/30')
               }`}
             >
               <Power className="w-3.5 h-3.5 stroke-[2.5]" />
@@ -323,14 +350,14 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </div>
         )}
 
-        {/* State A: Connection Error / Unreachable (Same clean styling as Standby) */}
+        {/* State A: Connection Error / Camera Not Found */}
         {!isStreaming && !isStarting && connectionError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
             <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 mb-3 shadow-xs">
               <AlertTriangle className="w-6 h-6 stroke-[1.75]" />
             </div>
             <h4 className="font-bold text-sm sm:text-base text-[var(--text-primary)] mb-1">
-              Camera Unreachable
+              Camera Not Found
             </h4>
             <p className="text-xs text-[var(--text-secondary)] max-w-xs mb-4">
               {connectionError}
@@ -451,14 +478,15 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </div>
         )}
 
-        {/* In-Canvas Camera Tuning Popover (Floating Over Video Canvas) - ONLY when in manual mode and no connection error */}
-        {isTuningOpen && camera.controlMode === 'manual' && !connectionError && (
+        {/* In-Canvas Camera Tuning Popover (Floating Over Video Canvas) - ONLY when in manual mode, no connection error, and streaming */}
+        {isTuningOpen && isStreaming && camera.controlMode === 'manual' && !connectionError && (
           <CameraTuningPopover
             cameraId={cameraId}
             cameraIndex={index}
             cameraName={camera.sourceName || `Camera 0${index}`}
             config={camera}
             isLive={isStreaming}
+            isRecording={isRecording}
             onClose={() => setIsTuningOpen(false)}
             onUpdateConfig={(partial) => onUpdateLiveControls?.(cameraId, partial)}
           />
@@ -471,12 +499,20 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         {/* Left: Stream Control & Record Control */}
         <div className="flex items-center gap-2">
           
-          {/* Stream button: GREEN for start, WARNING AMBER for stop, DISABLED if hardware is off or unreachable */}
+          {/* Stream button: GREEN for start, WARNING AMBER for stop, DISABLED if hardware is off, not found, or recording */}
           {isStreaming ? (
             <button
-              onClick={() => onStopStream(cameraId)}
-              title="Stop live stream"
-              className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-amber-600 hover:bg-amber-700 active:scale-95 text-white border border-amber-500 text-xs font-bold transition-all cursor-pointer shadow-xs focus:outline-none focus-visible:outline-none focus:ring-0"
+              onClick={() => {
+                if (isRecording) return;
+                onStopStream(cameraId);
+              }}
+              disabled={isRecording}
+              title={isRecording ? 'Stop recording before stopping the stream' : 'Stop live stream'}
+              className={`inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl text-xs font-bold border transition-all shadow-xs focus:outline-none focus-visible:outline-none focus:ring-0 ${
+                isRecording
+                  ? 'bg-amber-600/50 text-white border-amber-500/50 opacity-40 cursor-not-allowed'
+                  : 'bg-amber-600 hover:bg-amber-700 active:scale-95 text-white border-amber-500 cursor-pointer'
+              }`}
             >
               <Square className="w-3.5 h-3.5 fill-current" />
               <span>Stop Stream</span>
@@ -489,7 +525,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 isStarting
                   ? 'Connecting...'
                   : connectionError
-                  ? 'Camera is unreachable. Click Retry on card or edit IP.'
+                  ? 'Camera not found. Click Retry on card or edit IP.'
                   : !isEnabled
                   ? 'Camera hardware is powered off. Power on to stream.'
                   : 'Start live stream'
@@ -569,11 +605,23 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             {isExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
 
-          {/* 2. Edit Camera Config */}
+          {/* 2. Edit Camera Config - Disabled while recording */}
           <button
-            onClick={() => onOpenEdit(camera)}
-            title="Edit camera parameters, resolution, FPS, format & device"
-            className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--text-primary)] transition-all cursor-pointer active:scale-95 shadow-xs"
+            onClick={() => {
+              if (isRecording) return;
+              onOpenEdit(camera);
+            }}
+            disabled={isRecording}
+            title={
+              isRecording
+                ? 'Stop recording before editing camera configuration'
+                : 'Edit camera parameters, resolution, FPS, format & device'
+            }
+            className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all shadow-xs ${
+              isRecording
+                ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-35 cursor-not-allowed'
+                : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] cursor-pointer active:scale-95'
+            }`}
           >
             <Settings2 className="w-3.5 h-3.5" />
           </button>
@@ -582,14 +630,26 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           {camera.controlMode === 'manual' && !connectionError && (
             <button
               onClick={() => {
+                if (isRecording || !isStreaming) return;
                 setIsTuningOpen((prev) => !prev);
                 onOpenControls?.(camera);
               }}
-              title={isTuningOpen ? 'Close image tuning' : 'Adjust exposure, gain, focus & brightness'}
-              className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all cursor-pointer active:scale-95 shadow-xs ${
-                isTuningOpen
-                  ? 'bg-cyan-600 text-white border-cyan-500 shadow-md ring-2 ring-cyan-500/30'
-                  : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border-[var(--btn-secondary-border)] text-[var(--text-primary)]'
+              disabled={isRecording || !isStreaming}
+              title={
+                isRecording
+                  ? 'Cannot adjust camera controls while recording is active'
+                  : !isStreaming
+                  ? 'Start stream first to adjust camera controls'
+                  : isTuningOpen
+                  ? 'Close image tuning'
+                  : 'Adjust exposure, gain, focus & brightness'
+              }
+              className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all shadow-xs ${
+                isRecording || !isStreaming
+                  ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-35 cursor-not-allowed'
+                  : isTuningOpen
+                  ? 'bg-cyan-600 text-white border-cyan-500 shadow-md ring-2 ring-cyan-500/30 cursor-pointer active:scale-95'
+                  : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] cursor-pointer active:scale-95'
               }`}
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />

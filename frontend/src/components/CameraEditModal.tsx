@@ -288,8 +288,10 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
               variant="secondary"
               size="sm"
               onClick={handleDelete}
-              disabled={isDeleting || isSaving}
-              className="h-8 px-3 text-xs font-bold text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/10 cursor-pointer"
+              disabled={isDeleting || isSaving || isRecording}
+              className={`h-8 px-3 text-xs font-bold text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/10 ${
+                isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+              }`}
               icon={isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
             >
               <span>{isDeleting ? 'Deleting...' : 'Delete Camera'}</span>
@@ -310,8 +312,10 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
               variant="primary"
               size="sm"
               onClick={handleSave}
-              disabled={isSaving || isDeleting}
-              className="h-8 px-4 text-xs font-bold cursor-pointer"
+              disabled={isSaving || isDeleting || isRecording}
+              className={`h-8 px-4 text-xs font-bold ${
+                isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+              }`}
               icon={isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
             >
               <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
@@ -320,6 +324,13 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
         </div>
       }
     >
+      {isRecording && (
+        <div className="mb-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs flex items-center gap-2 font-medium">
+          <Lock className="w-4 h-4 shrink-0 text-amber-500" />
+          <span>Recording is active on this camera. Parameters and deletion are locked until recording stops.</span>
+        </div>
+      )}
+
       {errorMessage && (
         <div className="mb-3 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2 font-medium">
           <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
