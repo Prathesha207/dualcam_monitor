@@ -88,12 +88,12 @@ export const CameraCard: React.FC<CameraCardProps> = ({
      connectionError.toLowerCase().includes('claimed'))
   );
 
-  // Auto-close tuning popover if stream stops or connection error occurs
+  // Auto-close tuning popover if recording starts, stream stops, or connection error occurs
   useEffect(() => {
-    if (!isStreaming || connectionError) {
+    if (isRecording || !isStreaming || connectionError) {
       setIsTuningOpen(false);
     }
-  }, [isStreaming, connectionError]);
+  }, [isRecording, isStreaming, connectionError]);
 
   // Refresh stream connection and reset error state when stream starts
   useEffect(() => {
@@ -257,9 +257,9 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               {!connectionError && isEnabled && (
                 <button
                   type="button"
-                  disabled={!isStreaming}
+                  disabled={isRecording || !isStreaming}
                   onClick={() => {
-                    if (!isStreaming) return;
+                    if (isRecording || !isStreaming) return;
                     if (camera.controlMode !== 'manual') {
                       onUpdateLiveControls?.(cameraId, { controlMode: 'manual' });
                       setIsTuningOpen(true);
@@ -269,14 +269,16 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                     }
                   }}
                   title={
-                    !isStreaming
+                    isRecording
+                      ? 'Camera controls are locked while recording is active'
+                      : !isStreaming
                       ? 'Start live stream first to tune camera controls'
                       : camera.controlMode === 'manual'
                       ? (isTuningOpen ? 'Close manual tuning' : 'Open manual tuning controls')
                       : 'Click to enable Manual controls and open tuning popover'
                   }
                   className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase transition-all border shrink-0 ${
-                    !isStreaming
+                    isRecording || !isStreaming
                       ? 'opacity-40 cursor-not-allowed bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border-color)]'
                       : 'cursor-pointer active:scale-95 ' +
                         (camera.controlMode === 'manual'
@@ -670,24 +672,26 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <Settings2 className="w-3.5 h-3.5" />
           </button>
 
-          {/* 3. Manual Live Controls (Sliders: Exposure, Gain, Focus, Brightness, Contrast) - ONLY show in manual mode without errors */}
+          {/* 3. Manual Live Controls (Sliders: Exposure, Gain, Focus, Brightness, Contrast) - Disabled while recording */}
           {camera.controlMode === 'manual' && !connectionError && (
             <button
               onClick={() => {
-                if (!isStreaming) return;
+                if (isRecording || !isStreaming) return;
                 setIsTuningOpen((prev) => !prev);
                 onOpenControls?.(camera);
               }}
-              disabled={!isStreaming}
+              disabled={isRecording || !isStreaming}
               title={
-                !isStreaming
+                isRecording
+                  ? 'Camera controls are disabled while recording is active'
+                  : !isStreaming
                   ? 'Start stream first to adjust camera controls'
                   : isTuningOpen
                   ? 'Close image tuning'
                   : 'Adjust exposure, gain, focus & brightness'
               }
               className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all shadow-xs ${
-                !isStreaming
+                isRecording || !isStreaming
                   ? 'bg-[var(--btn-secondary-bg)] border-[var(--btn-secondary-border)] text-[var(--text-muted)] opacity-35 cursor-not-allowed'
                   : isTuningOpen
                   ? 'bg-[var(--btn-primary-bg)] text-[var(--btn-primary-text)] border-[var(--btn-primary-bg)] shadow-md ring-2 ring-[var(--accent-pond)]/30 cursor-pointer active:scale-95'

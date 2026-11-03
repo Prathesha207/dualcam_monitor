@@ -118,6 +118,11 @@ def update_live_controls(
         logger.warning(f"[LIVE CONTROLS] Rejected — camera {camera_id} pipeline not running")
         return {"status": "error", "message": f"Camera {camera_id} is not running"}
 
+    is_rec = bool(getattr(inst, "is_recording", False) or getattr(inst, "_active_recording", None) is not None)
+    if is_rec:
+        logger.warning(f"[LIVE CONTROLS] Rejected — camera {camera_id} is currently recording")
+        return {"status": "error", "message": f"Camera {camera_id} controls are locked while recording is active"}
+
     try:
         af = data.auto_focus if data.auto_focus is not None else data.autoFocus
         ae = data.auto_exposure if data.auto_exposure is not None else data.autoExposure
