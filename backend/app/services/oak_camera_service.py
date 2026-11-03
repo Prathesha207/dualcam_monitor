@@ -240,9 +240,12 @@ class OakCameraService:
                 return True
             except Exception as e:
                 err_str = str(e)
-                is_usb = ip.strip().lower() in {"usb", "auto"}
-                if ("already used" in err_str.lower() or "in use" in err_str.lower()) and is_usb:
-                    clean_msg = "USB device is already in use by another application/process. Make sure to close other software using the camera."
+                is_usb = not ip or str(ip).strip().lower() in {"usb", "auto"}
+                if any(k in err_str.lower() for k in ["already used", "in use", "already_in_use", "busy", "occupied", "claimed"]):
+                    if is_usb:
+                        clean_msg = "USB device is already in use by another application/process. Make sure to close other software using the camera."
+                    else:
+                        clean_msg = f"Camera at {ip} is already in use by another application or camera."
                     self._last_connection_error = clean_msg
                     if attempt < max_attempts - 1:
                         logger.warning(f"[DEVICE] Device is reported in use, waiting 2.0s to retry (attempt {attempt + 1}/{max_attempts})...")
@@ -253,8 +256,11 @@ class OakCameraService:
                         realtime_log_service.add_log("camera", "CAMERA", clean_msg, "error")
                         self.is_connected = False
                         return False
-                elif any(k in err_str.lower() for k in ["not found", "no available", "x_link_device_not_found", "failed to find", "timeout"]):
-                    clean_msg = f"No OAK camera found at {ip}. Please check the IP address or connection."
+                elif any(k in err_str.lower() for k in ["not found", "no available", "x_link_device_not_found", "failed to find", "timeout", "cannot find", "searched"]):
+                    if is_usb:
+                        clean_msg = "No OAK camera detected over USB. Please check your USB 3.0 cable connection."
+                    else:
+                        clean_msg = f"No OAK camera found at {ip}. Please check that the IP address is correct and reachable."
                 else:
                     clean_msg = f"Failed to connect to camera ({ip}): {err_str}"
 
@@ -1445,17 +1451,27 @@ class OakCameraService:
                 self._active_camera_id = getattr(config, "id", None)
                 if not self.is_connected:
                     if not await self.connect(config.ip_address):
-                        if "already used" in (self._last_connection_error or "").lower() or "in use" in (self._last_connection_error or "").lower():
+                        err = (self._last_connection_error or "").lower()
+                        is_usb = not config.ip_address or str(config.ip_address).strip().lower() in {"usb", "auto"}
+                        if "already used" in err or "in use" in err or "busy" in err or "occupied" in err:
                             return {
                                 "status": "error",
-                                "message": self._last_connection_error or "Device is already used by another application/process.",
+                                "message": self._last_connection_error or (
+                                    "USB device is already in use by another application/process. Make sure to close other software using the camera."
+                                    if is_usb else
+                                    f"Camera at {config.ip_address} is already in use by another application or process."
+                                ),
                                 "error_code": "DEVICE_IN_USE",
                             }
 
-                        if "no oak device found" in (self._last_connection_error or "").lower() or "cannot find any device" in (self._last_connection_error or "").lower():
+                        if any(k in err for k in ["not found", "cannot find", "no oak", "no device", "timeout", "searched"]):
                             return {
                                 "status": "error",
-                                "message": f"No OAK camera found at {config.ip_address or 'specified device'}. Please check the IP address or connection.",
+                                "message": self._last_connection_error or (
+                                    "No OAK camera detected over USB. Please check your USB 3.0 cable connection."
+                                    if is_usb else
+                                    f"No OAK camera found at {config.ip_address}. Please check that the IP address is correct and reachable."
+                                ),
                                 "error_code": "NO_DEVICE",
                             }
 

@@ -78,6 +78,15 @@ export const CameraCard: React.FC<CameraCardProps> = ({
     camera.ipAddress.includes('.') &&
     !camera.ipAddress.toLowerCase().includes('usb')
   );
+  const isDeviceInUse = Boolean(
+    connectionError &&
+    (connectionError.toLowerCase().includes('already in use') ||
+     connectionError.toLowerCase().includes('already used') ||
+     connectionError.toLowerCase().includes('in use') ||
+     connectionError.toLowerCase().includes('busy') ||
+     connectionError.toLowerCase().includes('occupied') ||
+     connectionError.toLowerCase().includes('claimed'))
+  );
 
   // Auto-close tuning popover if recording starts, stream stops, or connection error occurs
   useEffect(() => {
@@ -179,7 +188,9 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           <div
             className={`flex items-center justify-center w-8 h-8 rounded-xl border shrink-0 transition-colors ${
               connectionError
-                ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                ? isDeviceInUse
+                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                  : 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30'
                 : 'bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border-[var(--border-color)]'
             }`}
           >
@@ -205,10 +216,17 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                   CONNECTING
                 </span>
               ) : connectionError ? (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                  NOT FOUND
-                </span>
+                isDeviceInUse ? (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    {isIpCamera ? 'IN USE' : 'USB IN USE'}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 shrink-0">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                    NOT FOUND
+                  </span>
+                )
               ) : isEnabled ? (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border-color)] shrink-0">
                   STANDBY
@@ -350,14 +368,26 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </div>
         )}
 
-        {/* State A: Connection Error / Camera Not Found */}
+        {/* State A: Connection Error / In Use or Not Found */}
         {!isStreaming && !isStarting && connectionError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
-            <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-500 mb-3 shadow-xs">
+            <div
+              className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-3 shadow-xs ${
+                isDeviceInUse
+                  ? 'bg-amber-500/10 border border-amber-500/20 text-amber-500'
+                  : 'bg-rose-500/10 border border-rose-500/20 text-rose-500'
+              }`}
+            >
               <AlertTriangle className="w-6 h-6 stroke-[1.75]" />
             </div>
             <h4 className="font-bold text-sm sm:text-base text-[var(--text-primary)] mb-1">
-              Camera Not Found
+              {isDeviceInUse
+                ? isIpCamera
+                  ? 'Camera In Use'
+                  : 'USB Device In Use'
+                : isIpCamera
+                ? 'Camera Not Found'
+                : 'Camera Not Found'}
             </h4>
             <p className="text-xs text-[var(--text-secondary)] max-w-xs mb-4">
               {connectionError}
@@ -369,13 +399,17 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-[var(--bg-card-subtle)] hover:bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] hover:border-[var(--accent-pond)] text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
               >
                 <Settings2 className="w-3.5 h-3.5" />
-                <span>Edit Camera IP</span>
+                <span>{isIpCamera ? 'Edit Camera IP' : 'Edit Camera Config'}</span>
               </button>
               <button
                 type="button"
                 onClick={() => onStartStream(cameraId)}
                 disabled={isStarting}
-                className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:scale-95 text-white border border-rose-500 text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-50"
+                className={`inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl text-white text-xs font-bold transition-all cursor-pointer shadow-xs disabled:opacity-50 active:scale-95 ${
+                  isDeviceInUse
+                    ? 'bg-amber-600 hover:bg-amber-700 border border-amber-500'
+                    : 'bg-rose-600 hover:bg-rose-700 border border-rose-500'
+                }`}
               >
                 {isStarting ? (
                   <>
@@ -525,7 +559,11 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 isStarting
                   ? 'Connecting...'
                   : connectionError
-                  ? 'Camera not found. Click Retry on card or edit IP.'
+                  ? isDeviceInUse
+                    ? 'Camera is in use by another process. Click Retry on card or edit config.'
+                    : isIpCamera
+                    ? 'Camera not found. Click Retry on card or check IP.'
+                    : 'Camera not found on USB. Click Retry on card or check cable.'
                   : !isEnabled
                   ? 'Camera hardware is powered off. Power on to stream.'
                   : 'Start live stream'
