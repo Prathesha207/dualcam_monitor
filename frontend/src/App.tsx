@@ -61,10 +61,24 @@ export default function App() {
   >({});
 
   const [expandedCameraId, setExpandedCameraId] = useState<number | null>(null);
-  const [connectionErrors, setConnectionErrors] = useState<Record<number, string | null>>({});
+  const [connectionErrors, setConnectionErrors] = useState<Record<number, string | null>>(() => {
+    try {
+      const saved = localStorage.getItem('vision_camera_connection_errors');
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
   const [editCamera, setEditCamera] = useState<CameraConfig | null>(null);
   const [addCameraOpen, setAddCameraOpen] = useState<boolean>(false);
   const [helpOpen, setHelpOpen] = useState<boolean>(false);
+
+  // Sync connectionErrors to localStorage so unreachable status is retained across page reloads
+  useEffect(() => {
+    try {
+      localStorage.setItem('vision_camera_connection_errors', JSON.stringify(connectionErrors));
+    } catch {}
+  }, [connectionErrors]);
 
   // ─── 5. Load Cameras from Database ─────────────────────────────────
   const refreshCameras = useCallback(async () => {
@@ -139,7 +153,9 @@ export default function App() {
           setConnectionErrors((prev) => {
             const next = { ...prev };
             Object.keys(allCams).forEach((cid) => {
-              if (allCams[cid]?.last_error) {
+              if (allCams[cid]?.streaming || allCams[cid]?.running) {
+                next[Number(cid)] = null;
+              } else if (allCams[cid]?.last_error) {
                 next[Number(cid)] = allCams[cid].last_error;
               }
             });
@@ -448,6 +464,11 @@ export default function App() {
         showToast('info', `Camera deleted successfully`);
         addLog(`Deleted camera ${id} from database`, 'warn');
         if (expandedCameraId === id) setExpandedCameraId(null);
+        setConnectionErrors((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
         await refreshCameras();
       } catch (err: any) {
         showToast('error', err?.message || 'Failed to delete camera');

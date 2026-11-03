@@ -236,12 +236,12 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                     ? (isTuningOpen ? 'Close manual tuning' : 'Open manual tuning controls')
                     : 'Click to enable Manual controls and open tuning popover'
                 }
-                className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono font-bold tracking-wide uppercase transition-all cursor-pointer active:scale-95 ${
+                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-bold tracking-wide uppercase transition-all cursor-pointer active:scale-95 border ${
                   camera.controlMode === 'manual'
                     ? isTuningOpen
-                      ? 'bg-cyan-600 text-white border border-cyan-500 shadow-xs ring-1 ring-cyan-500/30'
-                      : 'bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/25'
-                    : 'bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] hover:brightness-110'
+                      ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/40 ring-1 ring-cyan-500/20 shadow-2xs'
+                      : 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/20'
+                    : 'bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border-color)] hover:text-[var(--text-primary)] hover:border-[var(--accent-pond)]'
                 } shrink-0`}
               >
                 {camera.controlMode?.toUpperCase() || 'AUTO'}

@@ -153,7 +153,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
   };
 
   // Presets Handlers
-  const handleApplyPreset = (presetName: 'clean' | 'default' | 'night' | 'highcont') => {
+  const handleApplyPreset = (presetName: 'clean' | 'default' | 'night') => {
     setActivePreset(presetName);
     let newGain = gain;
     let newExp = exposure;
@@ -176,11 +176,6 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
       newExp = 33;
       newB = 10;
       newC = 60;
-    } else if (presetName === 'highcont') {
-      newGain = 400;
-      newExp = 8;
-      newB = 0;
-      newC = 90;
     }
 
     setGain(newGain);
@@ -369,7 +364,8 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1 text-[11px] font-bold text-[var(--text-primary)]">
             <Zap className="w-3 h-3 text-amber-500 fill-amber-500/20" />
-            <span>Sensor Gain</span>
+            <span>Gain</span>
+            <span className="text-[9px] text-[var(--text-secondary)] font-mono font-normal">(100-1600)</span>
           </div>
           <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
             ISO {gain}
@@ -385,11 +381,6 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           style={getSliderStyle(gain, 100, 1600)}
           className="w-full h-1 rounded-lg cursor-pointer"
         />
-        <div className="flex justify-between text-[8.5px] text-[var(--text-secondary)] font-mono leading-none">
-          <span>100 (Clean)</span>
-          <span>400 (Std)</span>
-          <span>1600 (Max)</span>
-        </div>
       </div>
 
       {/* ── 3. Focus Lens ────────────────────────────────────────────── */}
@@ -397,7 +388,8 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1 text-[11px] font-bold text-[var(--text-primary)]">
             <Focus className="w-3 h-3 text-[var(--accent-pond)]" />
-            <span>Focus Lens</span>
+            <span>Focus</span>
+            <span className="text-[9px] text-[var(--text-secondary)] font-mono font-normal">(0-255)</span>
           </div>
           <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30">
             {config.focusAvailable === false ? 'Auto' : focus}
@@ -414,11 +406,6 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           style={getSliderStyle(focus, 0, 255)}
           className="w-full h-1 rounded-lg cursor-pointer disabled:opacity-40"
         />
-        <div className="flex justify-between text-[8.5px] text-[var(--text-secondary)] font-mono leading-none">
-          <span>0 (Far)</span>
-          <span>Preset</span>
-          <span>255 (Macro)</span>
-        </div>
       </div>
 
       {/* ── 4. Exposure Shutter ──────────────────────────────────────── */}
@@ -426,7 +413,8 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1 text-[11px] font-bold text-[var(--text-primary)]">
             <Sun className="w-3 h-3 text-[var(--accent-pond)]" />
-            <span>Exposure Shutter</span>
+            <span>Exposure</span>
+            <span className="text-[9px] text-[var(--text-secondary)] font-mono font-normal">(1-33ms)</span>
           </div>
           <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30">
             {exposure} ms
@@ -442,11 +430,6 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           style={getSliderStyle(exposure, 1, 33)}
           className="w-full h-1 rounded-lg cursor-pointer"
         />
-        <div className="flex justify-between text-[8.5px] text-[var(--text-secondary)] font-mono leading-none">
-          <span>1 ms (Fast)</span>
-          <span>Preset</span>
-          <span>33 ms (Max Light)</span>
-        </div>
       </div>
 
       {/* ── 5. Tone (Brightness & Contrast side-by-side) ─────────────── */}
@@ -494,7 +477,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           <button
             type="button"
             onClick={() => handleApplyPreset('clean')}
-            className={`flex-1 py-0.5 px-1 rounded-md text-[9.5px] font-bold transition-all cursor-pointer ${
+            className={`flex-1 py-0.5 px-1 rounded-lg text-[9.5px] font-bold transition-all cursor-pointer ${
               activePreset === 'clean'
                 ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                 : 'bg-[var(--bg-card-subtle)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] border border-[var(--border-color)]'
@@ -505,7 +488,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           <button
             type="button"
             onClick={() => handleApplyPreset('default')}
-            className={`flex-1 py-0.5 px-1 rounded-md text-[9.5px] font-bold transition-all cursor-pointer ${
+            className={`flex-1 py-0.5 px-1 rounded-lg text-[9.5px] font-bold transition-all cursor-pointer ${
               activePreset === 'default'
                 ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                 : 'bg-[var(--bg-card-subtle)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] border border-[var(--border-color)]'
@@ -516,24 +499,13 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           <button
             type="button"
             onClick={() => handleApplyPreset('night')}
-            className={`flex-1 py-0.5 px-1 rounded-md text-[9.5px] font-bold transition-all cursor-pointer ${
+            className={`flex-1 py-0.5 px-1 rounded-lg text-[9.5px] font-bold transition-all cursor-pointer ${
               activePreset === 'night'
                 ? 'bg-[var(--accent-pond)] text-white shadow-xs'
                 : 'bg-[var(--bg-card-subtle)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] border border-[var(--border-color)]'
             }`}
           >
             Night
-          </button>
-          <button
-            type="button"
-            onClick={() => handleApplyPreset('highcont')}
-            className={`flex-1 py-0.5 px-1 rounded-md text-[9.5px] font-bold transition-all cursor-pointer ${
-              activePreset === 'highcont'
-                ? 'bg-[var(--accent-pond)] text-white shadow-xs'
-                : 'bg-[var(--bg-card-subtle)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] border border-[var(--border-color)]'
-            }`}
-          >
-            High Cont
           </button>
         </div>
       </div>
@@ -543,7 +515,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         <button
           type="button"
           onClick={handleReset}
-          className="h-7 px-2.5 rounded-lg border border-[var(--border-color)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] font-bold text-[11px] transition-colors cursor-pointer"
+          className="h-7.5 px-3 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--btn-secondary-text)] font-bold text-xs transition-colors cursor-pointer active:scale-95 shadow-2xs"
         >
           Reset
         </button>
@@ -552,21 +524,21 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           type="button"
           onClick={handleSaveSettings}
           disabled={isSaving}
-          className="flex-1 h-7 rounded-lg bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold text-[11px] flex items-center justify-center gap-1 shadow-sm transition-all cursor-pointer disabled:opacity-50"
+          className="flex-1 h-7.5 rounded-xl bg-[var(--btn-primary-bg)] hover:bg-[var(--btn-primary-hover)] text-[var(--btn-primary-text)] border border-[var(--border-color)] font-bold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer disabled:opacity-50 active:scale-95"
         >
           {isSaving ? (
             <>
-              <Loader2 className="w-3 h-3 animate-spin" />
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
               <span>Saving...</span>
             </>
           ) : saveSuccess ? (
             <>
-              <CheckCircle2 className="w-3 h-3 text-emerald-300" />
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" />
               <span>Saved!</span>
             </>
           ) : (
             <>
-              <Save className="w-3 h-3" />
+              <Save className="w-3.5 h-3.5" />
               <span>Save Settings</span>
             </>
           )}
