@@ -599,10 +599,16 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           {/* Record button: Solid red button (never white) */}
           <button
             onClick={() => onToggleRecord(cameraId)}
-            disabled={!isEnabled}
+            disabled={!isEnabled || Boolean(connectionError) || isStarting}
             title={
               !isEnabled
                 ? 'Camera hardware is disabled'
+                : connectionError
+                ? isIpCamera
+                  ? 'Camera not found. Fix IP address to record.'
+                  : 'Camera not found. Check USB connection to record.'
+                : isStarting
+                ? 'Connecting to camera...'
                 : isRecording
                 ? 'Stop recording'
                 : isStreaming
@@ -610,7 +616,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 : 'Start stream and record'
             }
             className={`inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl text-xs font-bold border transition-all shadow-xs focus:outline-none focus-visible:outline-none focus:ring-0 ${
-              !isEnabled
+              !isEnabled || Boolean(connectionError) || isStarting
                 ? 'bg-red-600 text-white border-red-500 opacity-40 cursor-not-allowed'
                 : isRecording
                 ? 'bg-red-600 hover:bg-red-700 active:scale-95 text-white border-red-500 shadow-xs shadow-red-500/25 animate-pulse cursor-pointer'

@@ -338,7 +338,7 @@ export default function App() {
 
   const canRecordBoth =
     cameras.length >= 2 &&
-    cameras.filter((c) => c.is_enabled !== false).length >= 2;
+    cameras.filter((c) => c.is_enabled !== false && !connectionErrors[c.id!]).length >= 2;
 
   const handleToggleRecordBoth = useCallback(async () => {
     if (isRecordingBoth) {
