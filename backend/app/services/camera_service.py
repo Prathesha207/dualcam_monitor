@@ -1,5 +1,6 @@
 # app/services/camera_service.py
 # camera_service.py is mainly responsible for:
+# Database Management - Stores information in SQL database.
 
 # Creating cameras
 # Updating camera settings

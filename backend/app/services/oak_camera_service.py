@@ -1,3 +1,11 @@
+# app/services/oak_camera_service.py
+# Connect OAK camera
+# Create DepthAI pipeline
+# Capture frames
+# Stream video
+# Record video
+# Control exposure/focus
+# Disconnect camera
 import asyncio
 import os
 import re
@@ -418,7 +426,8 @@ class OakCameraService:
             raise RuntimeError(f"No OAK camera found matching '{value}'. Please verify the IP address or connection.")
 
     # ==================== Pipeline ====================
-
+    # Camera -> Encoder (Raw Frames) -> JPEG Stream (Recording) 
+    # Camera MJPEG(Stream) RAW NV12(Video File Recording)
     def _build_pipeline(self, pipeline: dai.Pipeline, config) -> bool:
         try:
             logger.info("[PIPELINE] Building...")
