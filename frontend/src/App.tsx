@@ -422,9 +422,11 @@ export default function App() {
         // Check if camera was actively streaming and if hardware-level params changed
         const wasStreaming = Boolean(streamingStates[updated.id!]);
         const prevCam = cameras.find((c) => c.id === updated.id);
+        const prevIp = (prevCam?.ipAddress || '').trim().toLowerCase();
+        const nextIp = (updated.ipAddress || '').trim().toLowerCase();
         const hwConfigChanged = Boolean(
           prevCam && (
-            prevCam.ipAddress !== updated.ipAddress ||
+            prevIp !== nextIp ||
             prevCam.resolution !== updated.resolution ||
             prevCam.targetFps !== updated.targetFps
           )
@@ -433,13 +435,16 @@ export default function App() {
         if (wasStreaming && hwConfigChanged) {
           // Restart camera & stream seamlessly to apply new resolution / FPS / device
           setStartingStates((prev) => ({ ...prev, [updated.id!]: true }));
+          setStreamingStates((prev) => ({ ...prev, [updated.id!]: false }));
           try {
             await cameraService.stop(updated.id);
             await cameraService.start({ camera_id: updated.id, ip_address: updated.ipAddress });
             await cameraService.startStream(updated.id);
+            setStreamingStates((prev) => ({ ...prev, [updated.id!]: true }));
             setConnectionErrors((prev) => ({ ...prev, [updated.id!]: null }));
           } catch (streamErr: any) {
             const msg = streamErr?.message || `Failed to restart stream for camera ${updated.id}`;
+            setStreamingStates((prev) => ({ ...prev, [updated.id!]: false }));
             setConnectionErrors((prev) => ({ ...prev, [updated.id!]: msg }));
           } finally {
             setStartingStates((prev) => ({ ...prev, [updated.id!]: false }));

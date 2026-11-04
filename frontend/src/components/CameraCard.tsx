@@ -212,13 +212,8 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 {camera.sourceName || `Camera ${index}`}
               </span>
 
-              {/* Streaming Status Pill */}
-              {isStreaming ? (
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  LIVE
-                </span>
-              ) : isStarting ? (
+              {/* Streaming & Connection Status Pill */}
+              {isStarting ? (
                 <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30 shrink-0">
                   <Loader2 className="w-2.5 h-2.5 animate-spin" />
                   CONNECTING
@@ -235,6 +230,11 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                     NOT FOUND
                   </span>
                 )
+              ) : isStreaming ? (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  LIVE
+                </span>
               ) : isEnabled ? (
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[var(--bg-card)] text-[var(--text-secondary)] border border-[var(--border-color)] shrink-0">
                   STANDBY
@@ -375,7 +375,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         )}
 
         {/* State A: Connection Error / In Use or Not Found */}
-        {!isStreaming && !isStarting && connectionError && (
+        {!isStarting && connectionError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-6 bg-[var(--bg-card)] select-none">
             <div
               className={`w-12 h-12 rounded-2xl flex items-center justify-center mb-3 shadow-xs ${
@@ -464,7 +464,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         )}
 
         {/* State D: Live Video Feed (with smooth zoom and pan transform) */}
-        {isEnabled && isStreaming && (
+        {!connectionError && !isStarting && isEnabled && isStreaming && (
           <div
             className="relative shrink-0 flex items-center justify-center"
             style={{ ...fittedRect, ...transformStyle }}
