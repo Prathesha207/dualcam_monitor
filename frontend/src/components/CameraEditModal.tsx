@@ -281,43 +281,55 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
       title="Camera & Stream Settings"
       description={`Configure parameters for ${camera.sourceName || camera.ipAddress || 'this camera'}`}
       footer={
-        <div className="flex items-center justify-between w-full">
-          {/* Delete Camera: Immediate clean delete, NO localhost confirm! */}
-          {onDelete && camera.id ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleDelete}
-              disabled={isDeleting || isSaving || isRecording}
-              className={`h-8 px-3 text-xs font-bold text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/10 ${isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
-                }`}
-              icon={isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-            >
-              <span>{isDeleting ? 'Deleting...' : 'Delete Camera'}</span>
-            </Button>
-          ) : <div />}
+        <div className="flex flex-col w-full gap-2.5">
+          {/* Pinned Error Banner: Always visible right above the Save button, never scrolls out of view */}
+          {errorMessage && (
+            <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2 font-medium">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+              <span className="flex-1 text-left">{errorMessage}</span>
+            </div>
+          )}
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onClose}
-              disabled={isSaving || isDeleting}
-              className="h-8 px-3.5 text-xs font-medium cursor-pointer"
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleSave}
-              disabled={isSaving || isDeleting || isRecording}
-              className={`h-8 px-4 text-xs font-bold ${isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+          <div className="flex items-center justify-between w-full">
+            {/* Delete Camera: Immediate clean delete, NO localhost confirm! */}
+            {onDelete && camera.id ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleDelete}
+                disabled={isDeleting || isSaving || isRecording}
+                className={`h-8 px-3 text-xs font-bold text-red-600 dark:text-red-400 border-red-500/30 hover:bg-red-500/10 ${
+                  isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
                 }`}
-              icon={isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-            >
-              <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
-            </Button>
+                icon={isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+              >
+                <span>{isDeleting ? 'Deleting...' : 'Delete Camera'}</span>
+              </Button>
+            ) : <div />}
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onClose}
+                disabled={isSaving || isDeleting}
+                className="h-8 px-3.5 text-xs font-medium cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleSave}
+                disabled={isSaving || isDeleting || isRecording}
+                className={`h-8 px-4 text-xs font-bold ${
+                  isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'
+                }`}
+                icon={isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+              >
+                <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
+              </Button>
+            </div>
           </div>
         </div>
       }
@@ -326,13 +338,6 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
         <div className="mb-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs flex items-center gap-2 font-medium">
           <Lock className="w-4 h-4 shrink-0 text-amber-500" />
           <span>Recording is active on this camera. Parameters and deletion are locked until recording stops.</span>
-        </div>
-      )}
-
-      {errorMessage && (
-        <div className="mb-3 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-2 font-medium">
-          <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
-          <span>{errorMessage}</span>
         </div>
       )}
 
@@ -558,7 +563,10 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
                 type="text"
                 value={name}
                 disabled={isRecording}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (errorMessage) setErrorMessage(null);
+                }}
                 placeholder="e.g., Front_Door"
                 className={`w-full h-9 px-3 text-xs rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-pond)] ${isRecording ? 'opacity-50 cursor-not-allowed' : ''
                   }`}
@@ -640,9 +648,16 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
                 <input
                   type="text"
                   value={ipAddress}
-                  onChange={(e) => setIpAddress(e.target.value)}
+                  onChange={(e) => {
+                    setIpAddress(e.target.value);
+                    if (errorMessage) setErrorMessage(null);
+                  }}
                   placeholder="e.g. 169.254.21.191"
-                  className="flex-1 min-w-0 h-9 px-3 text-xs font-mono rounded-xl bg-[var(--bg-card-subtle)] border border-[var(--border-color)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-pond)]"
+                  className={`flex-1 min-w-0 h-9 px-3 text-xs font-mono rounded-xl bg-[var(--bg-card-subtle)] border text-[var(--text-primary)] focus:outline-none ${
+                    errorMessage && errorMessage.toLowerCase().includes('ip')
+                      ? 'border-rose-500 focus:border-rose-500 ring-1 ring-rose-500/20'
+                      : 'border-[var(--border-color)] focus:border-[var(--accent-pond)]'
+                  }`}
                 />
               )}
 
@@ -657,6 +672,14 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
                 <span>Scan</span>
               </button>
             </div>
+
+            {/* Inline IP Validation Error Note directly below the IP Address field */}
+            {connectionType === 'ip' && errorMessage && errorMessage.toLowerCase().includes('ip') && (
+              <div className="p-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-600 dark:text-rose-400 text-xs flex items-center gap-1.5 font-medium mt-1">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-rose-500" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
           </div>
 
           {/* Hardware Power Toggle */}
