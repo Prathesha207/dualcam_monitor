@@ -432,7 +432,7 @@ class OakCameraService:
                 width, height = 1920, 1080
             self._pipeline_width = width
             self._pipeline_height = height
-            fps = int(config.fps or 30)
+            fps = max(5, min(60, int(config.fps or 30)))
             self._configured_fps = fps
             logger.info(f"[PIPELINE] {width}x{height} @ {fps}fps")
 

@@ -1,5 +1,13 @@
 # app/services/camera_service.py
+# camera_service.py is mainly responsible for:
 
+# Creating cameras
+# Updating camera settings
+# Enabling/disabling cameras
+# Deleting cameras
+# Selecting which camera configuration should be used
+
+# It does not directly start or stop the camera hardware.
 import json
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
@@ -80,6 +88,11 @@ def create_camera(db: Session, data: CameraCreate):
             dumped["clip_duration_minutes"] = max(1, int(dumped["clip_duration_minutes"]))
         else:
             dumped["clip_duration_minutes"] = 1
+
+        if "fps" in dumped and dumped["fps"] is not None:
+            dumped["fps"] = max(5, min(60, int(dumped["fps"])))
+        else:
+            dumped["fps"] = 30
 
         camera = Camera(**dumped)
 
@@ -176,6 +189,9 @@ def update_camera_partial(db: Session, camera_id: int, data: CameraUpdate):
 
         if "clip_duration_minutes" in update_data and update_data["clip_duration_minutes"] is not None:
             update_data["clip_duration_minutes"] = max(1, int(update_data["clip_duration_minutes"]))
+
+        if "fps" in update_data and update_data["fps"] is not None:
+            update_data["fps"] = max(5, min(60, int(update_data["fps"])))
 
         for key, value in update_data.items():
             setattr(camera, key, value)
