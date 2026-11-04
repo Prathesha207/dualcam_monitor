@@ -1087,10 +1087,16 @@ class OakCameraService:
         if not self._is_running or not self.is_connected or self._control_queue is None:
             return
         ctrl = dai.CameraControl()
-        ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
-        if self.current_focus is not None:
-            ctrl.setManualFocus(self.current_focus)
-        ctrl.setManualExposure(self.current_exposure_us, self.current_gain)
+        if self.control_mode == "auto":
+            self.auto_exposure_enabled = self.auto_focus_enabled = True
+            ctrl.setAutoExposureEnable()
+            ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.CONTINUOUS_VIDEO)
+        else:
+            self.auto_exposure_enabled = self.auto_focus_enabled = False
+            ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
+            if self.current_focus is not None:
+                ctrl.setManualFocus(self.current_focus)
+            ctrl.setManualExposure(self.current_exposure_us, self.current_gain)
         ctrl.setBrightness(max(-10, min(10, int(round(self.current_brightness / 5.0)))))
         ctrl.setContrast(max(-10, min(10, int(round((self.current_contrast - 50) / 5.0)))))
         try:

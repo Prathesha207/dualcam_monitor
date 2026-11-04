@@ -419,8 +419,32 @@ export default function App() {
         showToast('success', `${updated.sourceName} settings updated`);
         addLog(`Updated camera ${updated.id} parameters in database`, 'info');
 
-        // If camera is enabled, verify connectivity
-        if (updated.is_enabled !== false) {
+        // Check if camera was actively streaming and if hardware-level params changed
+        const wasStreaming = Boolean(streamingStates[updated.id!]);
+        const prevCam = cameras.find((c) => c.id === updated.id);
+        const hwConfigChanged = Boolean(
+          prevCam && (
+            prevCam.ipAddress !== updated.ipAddress ||
+            prevCam.resolution !== updated.resolution ||
+            prevCam.targetFps !== updated.targetFps
+          )
+        );
+
+        if (wasStreaming && hwConfigChanged) {
+          // Restart camera & stream seamlessly to apply new resolution / FPS / device
+          setStartingStates((prev) => ({ ...prev, [updated.id!]: true }));
+          try {
+            await cameraService.stop(updated.id);
+            await cameraService.start({ camera_id: updated.id, ip_address: updated.ipAddress });
+            await cameraService.startStream(updated.id);
+            setConnectionErrors((prev) => ({ ...prev, [updated.id!]: null }));
+          } catch (streamErr: any) {
+            const msg = streamErr?.message || `Failed to restart stream for camera ${updated.id}`;
+            setConnectionErrors((prev) => ({ ...prev, [updated.id!]: msg }));
+          } finally {
+            setStartingStates((prev) => ({ ...prev, [updated.id!]: false }));
+          }
+        } else if (updated.is_enabled !== false && !wasStreaming) {
           const chosenIp = (updated.ipAddress || '').trim();
           const isIp = Boolean(chosenIp && chosenIp.includes('.') && !chosenIp.toLowerCase().includes('usb'));
           if (isIp) {

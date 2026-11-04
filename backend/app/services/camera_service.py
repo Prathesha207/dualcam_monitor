@@ -199,8 +199,9 @@ def update_camera_partial(db: Session, camera_id: int, data: CameraUpdate):
         # Sync runtime controls to physical OAK camera if pipeline is currently active
         try:
             from app.services.oak_camera_service import oak_camera_service
-            if oak_camera_service.is_running:
-                oak_camera_service.update_controls(
+            inst = oak_camera_service.get_instance(camera_id)
+            if inst.is_running:
+                inst.update_controls(
                     exposure=camera.exposure,
                     gain=camera.gain,
                     focus=camera.focus,
