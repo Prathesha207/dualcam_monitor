@@ -90,6 +90,10 @@ def _ensure_tables():
                     for sql in camera_migrations:
                         conn.execute(text(sql))
 
+        # Contrast schema migration v2 (legacy 0..100 -> -10..+10)
+        from app.services.camera_limits_service import run_contrast_migration_v2
+        run_contrast_migration_v2(engine)
+
     except Exception as e:
         logger.warning(f"[BOOTSTRAP] Table migration check: {e}")
 

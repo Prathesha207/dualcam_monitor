@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { SlidersHorizontal, RotateCcw, Focus, Sun, Zap, CheckCircle2, Save, X, Loader2, Minus, ChevronUp } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { SlidersHorizontal, RotateCcw, Focus, Sun, Zap, CheckCircle2, Save, X, Loader2, Minus, ChevronUp, AlertTriangle, Info } from 'lucide-react';
 import type { CameraConfig } from '../../types';
 import { cameraService } from '../service/cameraService';
 
@@ -14,6 +14,24 @@ interface CameraTuningPopoverProps {
   onUpdateConfig?: (partial: Partial<CameraConfig>) => void;
 }
 
+// ── Log-Scale Conversion Helpers ──
+function valToLogPos(val: number, min: number, max: number): number {
+  const safeVal = Math.max(min, Math.min(max, val));
+  const logMin = Math.log(min);
+  const logMax = Math.log(max);
+  return Math.round(((Math.log(safeVal) - logMin) / (logMax - logMin)) * 1000);
+}
+
+function logPosToVal(pos: number, min: number, max: number, precision: number = 0): number {
+  const p = Math.max(0, Math.min(1000, pos)) / 1000;
+  const logMin = Math.log(min);
+  const logMax = Math.log(max);
+  const val = Math.exp(logMin + p * (logMax - logMin));
+  if (precision === 0) return Math.round(val);
+  const factor = Math.pow(10, precision);
+  return Math.round(val * factor) / factor;
+}
+
 export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
   cameraId,
   cameraIndex,
@@ -24,11 +42,49 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
   onClose,
   onUpdateConfig,
 }) => {
+  const activeFps = config.targetFps || config.fps || 30;
+
+  // ── Dynamic Limits State ──
+  const [limitsData, setLimitsData] = useState<any>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    cameraService.getCameraLimits(cameraId).then((data) => {
+      if (isMounted && data) {
+        setLimitsData(data);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [cameraId, activeFps]);
+
+  // Dynamic limits fallbacks
+  const gainHwMin = limitsData?.controls?.gain?.hardware_min ?? 65;
+  const gainHwMax = limitsData?.controls?.gain?.hardware_max ?? 16585;
+  const gainRecMin = limitsData?.controls?.gain?.recommended_min ?? 100;
+  const gainRecMax = limitsData?.controls?.gain?.recommended_max ?? 6400;
+
+  const expHwMinMs = limitsData?.controls?.exposure ? limitsData.controls.exposure.hardware_min / 1000.0 : 0.086;
+  const expHwMaxMs = limitsData?.controls?.exposure ? limitsData.controls.exposure.hardware_max / 1000.0 : 1000.0;
+  const expRecMinMs = limitsData?.controls?.exposure ? limitsData.controls.exposure.recommended_min / 1000.0 : 0.1;
+  const expRecMaxMs = limitsData?.controls?.exposure ? limitsData.controls.exposure.recommended_max / 1000.0 : Math.floor(950 / activeFps);
+  const framePeriodMs = 1000.0 / activeFps;
+
+  const focusMin = limitsData?.controls?.focus?.hardware_min ?? 0;
+  const focusMax = limitsData?.controls?.focus?.hardware_max ?? 255;
+
+  const contrastMin = limitsData?.controls?.contrast?.hardware_min ?? -10;
+  const contrastMax = limitsData?.controls?.contrast?.hardware_max ?? 10;
+  const brightnessMin = limitsData?.controls?.brightness?.min ?? -50;
+  const brightnessMax = limitsData?.controls?.brightness?.max ?? 50;
+
+  // ── Active Control Values ──
   const [exposure, setExposure] = useState<number>(config.exposure ?? 8);
   const [gain, setGain] = useState<number>(config.gain ?? config.iso ?? 400);
   const [focus, setFocus] = useState<number>(config.focus && config.focus > 0 ? config.focus : 128);
   const [brightness, setBrightness] = useState<number>(config.brightness ?? 0);
-  const [contrast, setContrast] = useState<number>(config.contrast ?? 50);
+  const [contrast, setContrast] = useState<number>(config.contrast ?? 0);
 
   const [activePreset, setActivePreset] = useState<string | null>(null);
   const [isMinimized, setIsMinimized] = useState(false);
@@ -36,13 +92,29 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Initial reference values from database for Reset
+  // Squelched/Debounced Telemetry
+  const [debouncedTelemetry, setDebouncedTelemetry] = useState<any>(null);
+  const telemetrySettleTimerRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (telemetrySettleTimerRef.current) {
+      clearTimeout(telemetrySettleTimerRef.current);
+    }
+    telemetrySettleTimerRef.current = setTimeout(() => {
+      setDebouncedTelemetry(config.telemetry);
+    }, 300);
+    return () => {
+      if (telemetrySettleTimerRef.current) clearTimeout(telemetrySettleTimerRef.current);
+    };
+  }, [config.telemetry, gain, exposure]);
+
+  // Initial reference values for Reset
   const initialRef = useRef({
     exposure: config.exposure ?? 8,
     gain: config.gain ?? config.iso ?? 400,
     focus: config.focus && config.focus > 0 ? config.focus : 128,
     brightness: config.brightness ?? 0,
-    contrast: config.contrast ?? 50,
+    contrast: config.contrast ?? 0,
   });
 
   // Network queue & throttling refs
@@ -51,7 +123,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
   const throttleTimerRef = useRef<any>(null);
   const lastSentTimeRef = useRef<number>(0);
 
-  // Sync internal state if config changes externally (e.g. loaded from DB)
+  // Sync internal state if config changes externally
   useEffect(() => {
     if (!inFlightRef.current && !pendingUpdateRef.current) {
       if (typeof config.exposure === 'number') setExposure(config.exposure);
@@ -118,7 +190,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
     [dispatchToBackend]
   );
 
-  // Sliders Change Handlers - Locked when recording is active
+  // ── Slider Handlers ──
   const handleGainChange = (val: number) => {
     if (isRecording) return;
     setGain(val);
@@ -159,7 +231,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
     scheduleDispatch({ control_mode: 'manual', gain, exposure, focus, brightness, contrast: val });
   };
 
-  // Presets Handlers
+  // ── Presets ──
   const handleApplyPreset = (presetName: 'clean' | 'default' | 'night') => {
     if (isRecording) return;
     setActivePreset(presetName);
@@ -171,19 +243,20 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
 
     if (presetName === 'clean') {
       newGain = 100;
-      newExp = 18;
+      newExp = Math.min(18, expRecMaxMs);
       newB = 0;
-      newC = 50;
+      newC = 0;
     } else if (presetName === 'default') {
       newGain = 400;
-      newExp = 8;
+      newExp = Math.min(8, expRecMaxMs);
+      newFocus = 128;
       newB = 0;
-      newC = 50;
+      newC = 0;
     } else if (presetName === 'night') {
-      newGain = 1200;
-      newExp = 33;
-      newB = 10;
-      newC = 60;
+      newGain = 1600;
+      newExp = Math.min(33, framePeriodMs);
+      newB = 0;
+      newC = 2;
     }
 
     setGain(newGain);
@@ -212,7 +285,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
     });
   };
 
-  // Reset to initial values
+  // ── Reset ──
   const handleReset = () => {
     if (isRecording) return;
     setActivePreset(null);
@@ -243,7 +316,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
     });
   };
 
-  // Save Settings to Database
+  // ── Save to DB ──
   const handleSaveSettings = async () => {
     if (isRecording) return;
     setIsSaving(true);
@@ -259,7 +332,6 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         save_to_db: true,
       });
 
-      // Also ensure standard camera record in DB has the updated controls
       if (cameraId) {
         await cameraService.updateCamera(cameraId, {
           exposure,
@@ -282,9 +354,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         controlMode: 'manual',
       });
 
-      // Update initialRef so subsequent Reset reverts to these newly saved settings
       initialRef.current = { exposure, gain, focus, brightness, contrast };
-
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2000);
     } catch (err: any) {
@@ -295,8 +365,8 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
     }
   };
 
-  // Helper for slider gradient fill
-  const getSliderStyle = (val: number, min: number, max: number) => {
+  // Slider styles with optional green recommended zone
+  const getLinearSliderStyle = (val: number, min: number, max: number, recMin?: number, recMax?: number) => {
     const pct = Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100));
     return {
       background: `linear-gradient(to right, var(--accent-pond, #06b6d4) 0%, var(--accent-pond, #06b6d4) ${pct}%, var(--border-color, #cbd5e1) ${pct}%, var(--border-color, #cbd5e1) 100%)`,
@@ -304,7 +374,21 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
     };
   };
 
-  // Minimized Ultra-Compact Single-Line Bar
+  const getLogSliderStyle = (pos: number) => {
+    const pct = Math.max(0, Math.min(100, pos / 10));
+    return {
+      background: `linear-gradient(to right, var(--accent-pond, #06b6d4) 0%, var(--accent-pond, #06b6d4) ${pct}%, var(--border-color, #cbd5e1) ${pct}%, var(--border-color, #cbd5e1) 100%)`,
+      accentColor: 'var(--accent-pond, #06b6d4)',
+    };
+  };
+
+  // Telemetry matching
+  const appliedIso = debouncedTelemetry?.iso;
+  const appliedExpMs = debouncedTelemetry?.exposure_ms;
+  const hasIsoTelemetryDiff = appliedIso && appliedIso !== gain;
+  const hasExpTelemetryDiff = appliedExpMs && Math.abs(appliedExpMs - exposure) / Math.max(0.1, exposure) > 0.02;
+
+  // ── Minimized Ultra-Compact Single-Line Bar ──
   if (isMinimized) {
     return (
       <div
@@ -321,7 +405,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           <SlidersHorizontal className="w-3.5 h-3.5 text-[var(--accent-pond)] shrink-0" />
           <span className="text-[11px] font-bold">CAM {cameraIndex}</span>
           <span className="text-[10px] font-mono text-[var(--text-secondary)]">
-            ISO {gain} • {exposure}ms
+            ISO {gain} • {exposure}ms • {activeFps}FPS
           </span>
         </div>
         <button
@@ -338,20 +422,25 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           title="Close tuning"
           className="w-5 h-5 rounded hover:bg-[var(--btn-secondary-hover)] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
         >
-          <X className="w-3 h-3" />
+          <X className="w-3.5 h-3.5" />
         </button>
       </div>
     );
   }
 
+  // Exposure Warning Calculation
+  const isExpAboveFramePeriod = exposure > framePeriodMs;
+  const isExpNearLimit = exposure > expRecMaxMs && exposure <= framePeriodMs;
+  const calcFps = isExpAboveFramePeriod ? Math.min(activeFps, Math.floor(1000 / exposure)) : activeFps;
+
   return (
     <div
-      className="absolute right-2.5 bottom-2.5 z-40 w-[235px] sm:w-[245px] max-w-[calc(100%-20px)] max-h-[calc(100%-20px)] overflow-y-auto rounded-2xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-2xl p-2 flex flex-col gap-1 select-none animate-in fade-in zoom-in-95 duration-150 text-[var(--text-primary)]"
+      className="absolute right-2.5 bottom-2.5 z-40 w-[245px] sm:w-[255px] max-w-[calc(100%-20px)] max-h-[calc(100%-20px)] overflow-y-auto rounded-2xl bg-[var(--bg-card)]/95 backdrop-blur-md border border-[var(--border-color)] shadow-2xl p-2 flex flex-col gap-1 select-none animate-in fade-in zoom-in-95 duration-150 text-[var(--text-primary)]"
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}
     >
-      {/* 1. Popover Header (Title, CAM badge, Minimize, Close - NO reset here) */}
+      {/* 1. Popover Header */}
       <div className="flex items-center justify-between pb-1 border-b border-[var(--border-color)]">
         <div className="flex items-center gap-1.5 min-w-0">
           <SlidersHorizontal className="w-3.5 h-3.5 text-[var(--accent-pond)] shrink-0" />
@@ -359,7 +448,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
             {cameraName ? `${cameraName} Tuning` : `Camera 0${cameraIndex} Tuning`}
           </h3>
           <span className="px-1 py-0.2 rounded text-[9px] font-mono font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30 shrink-0">
-            CAM {cameraIndex}
+            {activeFps} FPS
           </span>
         </div>
 
@@ -394,31 +483,47 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         </div>
       )}
 
-      {/* 2. Sensor Gain (ISO) */}
+      {/* 2. Sensor Gain (ISO) - Logarithmic Scale */}
       <div className="py-1 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-0.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1 text-[11px] font-bold text-[var(--text-primary)]">
             <Zap className="w-3 h-3 text-amber-500 fill-amber-500/20" />
             <span>Gain</span>
           </div>
-          <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-            ISO {gain}
-          </span>
+          <div className="flex items-center gap-1">
+            {hasIsoTelemetryDiff && (
+              <span className="text-[9px] font-mono text-[var(--text-secondary)] bg-[var(--bg-card)] px-1 rounded border border-[var(--border-color)]" title="Hardware sensor applied sensitivity">
+                Sensor: {appliedIso}
+              </span>
+            )}
+            <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+              ISO {gain}
+            </span>
+          </div>
         </div>
         <input
           type="range"
-          min={100}
-          max={1600}
-          step={10}
-          value={gain}
+          min={0}
+          max={1000}
+          step={1}
+          value={valToLogPos(gain, gainHwMin, gainHwMax)}
           disabled={isRecording}
-          onChange={(e) => handleGainChange(parseInt(e.target.value, 10))}
-          style={getSliderStyle(gain, 100, 1600)}
+          onChange={(e) => {
+            const nextVal = logPosToVal(parseInt(e.target.value, 10), gainHwMin, gainHwMax, 0);
+            handleGainChange(nextVal);
+          }}
+          style={getLogSliderStyle(valToLogPos(gain, gainHwMin, gainHwMax))}
           className={`w-full h-1 rounded-lg ${isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
         />
+        {gain > gainRecMax && (
+          <div className="flex items-center gap-1 text-[9px] text-amber-500 font-medium pt-0.2">
+            <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+            <span>High sensor noise & digital grain</span>
+          </div>
+        )}
       </div>
 
-      {/* 3. Focus Lens */}
+      {/* 3. Focus Lens - Linear 0 to 255 */}
       <div className="py-1 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-0.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1 text-[11px] font-bold text-[var(--text-primary)]">
@@ -431,78 +536,109 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         </div>
         <input
           type="range"
-          min={0}
-          max={255}
+          min={focusMin}
+          max={focusMax}
           step={1}
           value={focus}
           disabled={isRecording || config.focusAvailable === false}
           onChange={(e) => handleFocusChange(parseInt(e.target.value, 10))}
-          style={getSliderStyle(focus, 0, 255)}
+          style={getLinearSliderStyle(focus, focusMin, focusMax)}
           className={`w-full h-1 rounded-lg ${isRecording || config.focusAvailable === false ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
         />
       </div>
 
-      {/* 4. Exposure Shutter */}
+      {/* 4. Exposure Shutter - Logarithmic Scale */}
       <div className="py-1 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] space-y-0.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1 text-[11px] font-bold text-[var(--text-primary)]">
             <Sun className="w-3 h-3 text-[var(--accent-pond)]" />
             <span>Exposure</span>
           </div>
-          <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30">
-            {exposure} ms
-          </span>
+          <div className="flex items-center gap-1">
+            {hasExpTelemetryDiff && (
+              <span className="text-[9px] font-mono text-[var(--text-secondary)] bg-[var(--bg-card)] px-1 rounded border border-[var(--border-color)]" title="Hardware sensor applied exposure time">
+                Sensor: {appliedExpMs}ms
+              </span>
+            )}
+            <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30">
+              {exposure} ms
+            </span>
+          </div>
         </div>
         <input
           type="range"
-          min={1}
-          max={33}
+          min={0}
+          max={1000}
           step={1}
-          value={exposure}
+          value={valToLogPos(exposure, expHwMinMs, expHwMaxMs)}
           disabled={isRecording}
-          onChange={(e) => handleExposureChange(parseInt(e.target.value, 10))}
-          style={getSliderStyle(exposure, 1, 33)}
+          onChange={(e) => {
+            const nextVal = logPosToVal(parseInt(e.target.value, 10), expHwMinMs, expHwMaxMs, 1);
+            handleExposureChange(nextVal);
+          }}
+          style={getLogSliderStyle(valToLogPos(exposure, expHwMinMs, expHwMaxMs))}
           className={`w-full h-1 rounded-lg ${isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
         />
+        {isExpAboveFramePeriod ? (
+          <div className="flex items-center gap-1 text-[9px] text-amber-500 font-medium pt-0.2">
+            <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+            <span>Exceeds frame period: stream will drop to ~{calcFps} FPS</span>
+          </div>
+        ) : isExpNearLimit ? (
+          <div className="flex items-center gap-1 text-[9px] text-sky-400 font-medium pt-0.2">
+            <Info className="w-2.5 h-2.5 shrink-0" />
+            <span>Near frame rate limit</span>
+          </div>
+        ) : null}
       </div>
 
-      {/* 5. Tone (Brightness & Contrast side-by-side) */}
+      {/* 5. Tone (Digital Brightness & Hardware Contrast) */}
       <div className="py-1 px-2 rounded-lg bg-[var(--bg-card-subtle)] border border-[var(--border-color)] grid grid-cols-2 gap-2">
         <div>
           <div className="flex items-center justify-between text-[10px] font-medium text-[var(--text-secondary)] mb-0.5">
-            <span>Brightness</span>
+            <span title="Software digital luma post-processing">Brightness</span>
             <span className="font-mono font-bold text-[var(--accent-pond)] text-[9.5px]">
               {brightness > 0 ? `+${brightness}` : brightness}
             </span>
           </div>
           <input
             type="range"
-            min={-50}
-            max={50}
+            min={brightnessMin}
+            max={brightnessMax}
             step={1}
             value={brightness}
             disabled={isRecording}
             onChange={(e) => handleBrightnessChange(parseInt(e.target.value, 10))}
-            style={getSliderStyle(brightness, -50, 50)}
+            style={getLinearSliderStyle(brightness, brightnessMin, brightnessMax)}
             className={`w-full h-1 rounded-lg ${isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
           />
+          {Math.abs(brightness) > 20 && (
+            <p className="text-[8.5px] text-amber-500 truncate pt-0.2">Luma shift reduces dynamic range</p>
+          )}
         </div>
         <div>
           <div className="flex items-center justify-between text-[10px] font-medium text-[var(--text-secondary)] mb-0.5">
-            <span>Contrast</span>
-            <span className="font-mono font-bold text-[var(--accent-pond)] text-[9.5px]">{contrast}</span>
+            <span title="Hardware ISP Contrast register (-10 to +10)">Contrast</span>
+            <span className="font-mono font-bold text-[var(--accent-pond)] text-[9.5px]">
+              {contrast > 0 ? `+${contrast}` : contrast}
+            </span>
           </div>
           <input
             type="range"
-            min={0}
-            max={100}
+            min={contrastMin}
+            max={contrastMax}
             step={1}
             value={contrast}
             disabled={isRecording}
             onChange={(e) => handleContrastChange(parseInt(e.target.value, 10))}
-            style={getSliderStyle(contrast, 0, 100)}
+            style={getLinearSliderStyle(contrast, contrastMin, contrastMax)}
             className={`w-full h-1 rounded-lg ${isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
           />
+          {contrast > 8 ? (
+            <p className="text-[8.5px] text-amber-500 truncate pt-0.2">May clip specular highlights</p>
+          ) : contrast < -5 ? (
+            <p className="text-[8.5px] text-sky-400 truncate pt-0.2">Low contrast is flat</p>
+          ) : null}
         </div>
       </div>
 

@@ -25,8 +25,8 @@ class Camera(Base):
     gain = Column(Float, nullable=True)
     focus = Column(Integer, nullable=True)
 
-    brightness = Column(Integer, nullable=True)
-    contrast = Column(Integer, nullable=True)
+    brightness = Column(Integer, default=0, nullable=True)
+    contrast = Column(Integer, default=0, nullable=True)
 
     # Auto Toggles
     auto_exposure = Column(Boolean, default=False)

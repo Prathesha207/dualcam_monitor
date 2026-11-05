@@ -61,6 +61,15 @@ def _extract_device_mxid(device_or_info) -> str:
     return str(getattr(device_or_info, "name", "") or "").strip()
 
 
+_brightness_lut_cache: dict[int, np.ndarray] = {}
+
+def _get_brightness_lut(b: int) -> np.ndarray:
+    """Pre-computed 256-element uint8 LUT for fast, negative-safe brightness scaling."""
+    if b not in _brightness_lut_cache:
+        _brightness_lut_cache[b] = np.clip(np.arange(256, dtype=np.int32) + b, 0, 255).astype(np.uint8)
+    return _brightness_lut_cache[b]
+
+
 class OakCameraService:
     """Single OAK-D camera service for live streaming and recording.
 
@@ -135,7 +144,7 @@ class OakCameraService:
         # ---- Camera settings ----
         self.control_mode: str = "auto"
         self.current_brightness: int = 0
-        self.current_contrast: int = 50
+        self.current_contrast: int = 0
         self.current_fps: float = 0.0
         self._configured_fps: int = 30
         self.current_exposure_us: int = 8000
@@ -146,6 +155,21 @@ class OakCameraService:
         self.auto_exposure_enabled: bool = False
         self.auto_focus_enabled: bool = False
         self._latest_metadata: tuple[int, int, int | None] | None = None
+
+        # Tracking for partial control dispatch
+        self._last_sent_focus: int | None = None
+        self._last_sent_exposure_us: int | None = None
+        self._last_sent_gain: int | None = None
+        self._last_sent_contrast: int | None = None
+
+        # Applied sensor telemetry readback
+        self._latest_telemetry: dict[str, Any] = {
+            "iso": None,
+            "exposure_us": None,
+            "exposure_ms": None,
+            "lens_position": None,
+            "timestamp": None,
+        }
 
         # ---- Recording ----
         self._active_recording = None
@@ -510,22 +534,26 @@ class OakCameraService:
                 logger.warning("[PIPELINE] Invalid saved camera values; using 8ms/ISO400 preset")
                 exposure, gain, focus = 8000, 400, 128
 
-            self.current_exposure_us = max(100, min(33000, exposure))
+            self.current_exposure_us = max(86, min(1_000_000, exposure))
             self.current_gain = gain
             self.current_focus = focus
             self.focus_available = focus is not None
             self.current_brightness = int(config.brightness or 0)
-            self.current_contrast = int(config.contrast if config.contrast is not None else 50)
+            self.current_contrast = max(-10, min(10, int(config.contrast if config.contrast is not None else 0)))
             self.auto_exposure_enabled = self.auto_focus_enabled = False
             init_ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
             if focus is not None:
                 init_ctrl.setManualFocus(focus)
             init_ctrl.setManualExposure(self.current_exposure_us, gain)
-            hw_b = max(-10, min(10, int(round(self.current_brightness / 5.0))))
-            hw_c = max(-10, min(10, int(round((self.current_contrast - 50) / 5.0))))
-            init_ctrl.setBrightness(hw_b)
-            init_ctrl.setContrast(hw_c)
-            logger.info(f"[PIPELINE] {control_mode} fixed preset: exp={self.current_exposure_us}us, gain={gain}, focus={focus}")
+            init_ctrl.setContrast(self.current_contrast)
+
+            # Record initially sent state
+            self._last_sent_focus = focus
+            self._last_sent_exposure_us = self.current_exposure_us
+            self._last_sent_gain = gain
+            self._last_sent_contrast = self.current_contrast
+
+            logger.info(f"[PIPELINE] {control_mode} fixed preset: exp={self.current_exposure_us}us, gain={gain}, focus={focus}, contrast={self.current_contrast}")
 
             is_usb2 = False
             if self.device is not None:
@@ -884,20 +912,35 @@ class OakCameraService:
                 except Exception:
                     pass
 
+                # Extract real-time applied sensor telemetry from DepthAI ImgFrame
+                try:
+                    applied_iso = pkt.getSensitivity()
+                    raw_exp = pkt.getExposureTime()
+                    applied_exp_us = int(raw_exp.total_seconds() * 1_000_000) if hasattr(raw_exp, "total_seconds") else int(raw_exp)
+                    applied_focus = pkt.getLensPosition() if hasattr(pkt, "getLensPosition") else None
+                    self._latest_telemetry = {
+                        "iso": int(applied_iso) if applied_iso else None,
+                        "exposure_us": applied_exp_us,
+                        "exposure_ms": round(applied_exp_us / 1000.0, 3) if applied_exp_us else None,
+                        "lens_position": int(applied_focus) if applied_focus is not None else None,
+                        "timestamp": ts_sec,
+                    }
+                except Exception:
+                    pass
+
                 if not _first_frame_logged:
                     logger.info(f"[CONVERT] First frame received — shape={raw_bgr.shape} | ae_limit_us={self._ae_limit_us} | configured_fps={self._configured_fps}")
                     _first_frame_logged = True
 
-                display_bgr = raw_bgr
-                b = self.current_brightness
-                c = self.current_contrast
-                if b != 0 or (c is not None and c != 50):
-                    alpha = (c / 50.0) if (c is not None and c > 0) else 1.0
-                    beta = float(b)
+                # Software Brightness via cached LUT (negative-safe with zero-copy aliasing guard)
+                b = int(self.current_brightness or 0)
+                if b == 0:
+                    display_bgr = raw_bgr.copy()
+                else:
                     try:
-                        display_bgr = cv2.convertScaleAbs(raw_bgr, alpha=alpha, beta=beta)
+                        display_bgr = cv2.LUT(raw_bgr, _get_brightness_lut(b))
                     except Exception:
-                        display_bgr = raw_bgr
+                        display_bgr = raw_bgr.copy()
 
                 if self.control_mode == "auto" and not self._calibrating:
                     self._run_monitor(display_bgr)
@@ -1074,78 +1117,114 @@ class OakCameraService:
     # ==================== Camera Controls ====================
 
     def reset_controls(self) -> dict:
-        """Reapply the saved default preset from database."""
+        """Reapply the saved default preset from database with full hardware push."""
         self._load_saved_db_settings()
         self.auto_exposure_enabled = self.auto_focus_enabled = False
         self._monitor_baseline_sharpness = None
-        ctrl = dai.CameraControl()
-        ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
-        if self.current_focus is not None:
-            ctrl.setManualFocus(self.current_focus)
-        ctrl.setManualExposure(self.current_exposure_us, self.current_gain)
-        hw_b = max(-10, min(10, int(round(self.current_brightness / 5.0))))
-        hw_c = max(-10, min(10, int(round((self.current_contrast - 50) / 5.0))))
-        ctrl.setBrightness(hw_b)
-        ctrl.setContrast(hw_c)
-        try:
-            if self._control_queue is not None and self._is_running and self.is_connected:
-                self._control_queue.send(ctrl)
-        except Exception as e:
-            logger.warning(f"[CONTROL] Preset apply failed: {e}")
-            return {"status": "error", "message": str(e)}
+        self.update_controls(force_full=True)
         return {"status": "ok", **self._camera_settings()}
 
     def update_controls(
-        self, exposure: int | None = None, gain: int | None = None,
-        focus: int | None = None, brightness: int | None = None,
-        contrast: int | None = None, auto_focus: bool | None = None,
-        auto_exposure: bool | None = None, control_mode: str | None = None,
+        self,
+        exposure: float | int | None = None,
+        gain: float | int | None = None,
+        focus: int | None = None,
+        brightness: int | None = None,
+        contrast: int | None = None,
+        auto_focus: bool | None = None,
+        auto_exposure: bool | None = None,
+        control_mode: str | None = None,
         reset: bool | None = None,
+        force_full: bool = False,
     ) -> None:
-        """Apply fixed user or saved preset values. Legacy AE/AF flags are ignored."""
+        """
+        Apply camera controls with Zone 1 hardware clamping.
+        Implements atomic exposure+gain pairing and partial dispatch (only sending changed registers).
+        """
         if reset:
             self.reset_controls()
             return
+
         requested_mode = (control_mode or "").lower()
         if requested_mode in {"auto", "manual"}:
             self.control_mode = requested_mode
         if requested_mode == "manual" or (not requested_mode and any(v is not None for v in (exposure, gain, focus))):
             self.control_mode = "manual"
+
+        # 1. Update internal state first (Zone 1 Physical Hardware Clamping)
         if brightness is not None:
             self.current_brightness = max(-50, min(50, int(brightness)))
         if contrast is not None:
-            self.current_contrast = max(0, min(100, int(contrast)))
+            self.current_contrast = max(-10, min(10, int(contrast)))
         if gain is not None:
-            self.current_gain = max(100, min(1600, int(gain)))
+            self.current_gain = max(65, min(16585, int(gain)))
         if focus is not None:
             self.current_focus = max(0, min(255, int(focus)))
             self.focus_available = True
         if exposure is not None:
-            value = int(exposure)
-            exp_us = value * 1000 if value <= 1000 else value
-            max_us = max(1000, int(1_000_000 / max(self._configured_fps, 1)))
-            self.current_exposure_us = max(100, min(max_us, exp_us))
+            val = float(exposure)
+            exp_us = int(val * 1000) if val <= 1000 else int(val)
+            self.current_exposure_us = max(86, min(1_000_000, exp_us))
+
         self.auto_exposure_enabled = self.auto_focus_enabled = False
         self._monitor_baseline_sharpness = None
+
         if not self._is_running or not self.is_connected or self._control_queue is None:
             return
+
         ctrl = dai.CameraControl()
+        has_updates = False
+
         if self.control_mode == "auto":
             self.auto_exposure_enabled = self.auto_focus_enabled = True
             ctrl.setAutoExposureEnable()
             ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.CONTINUOUS_VIDEO)
-        else:
+            has_updates = True
+        elif force_full or self._last_sent_exposure_us is None:
+            # Full apply (startup or reconnect): dispatch all registers
             self.auto_exposure_enabled = self.auto_focus_enabled = False
             ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
             if self.current_focus is not None:
                 ctrl.setManualFocus(self.current_focus)
             ctrl.setManualExposure(self.current_exposure_us, self.current_gain)
-        ctrl.setBrightness(max(-10, min(10, int(round(self.current_brightness / 5.0)))))
-        ctrl.setContrast(max(-10, min(10, int(round((self.current_contrast - 50) / 5.0)))))
-        try:
-            self._control_queue.send(ctrl)
-        except Exception as ctrl_err:
-            logger.warning(f"[CONTROL] Control queue send failed: {ctrl_err}")
+            ctrl.setContrast(self.current_contrast)
+            
+            self._last_sent_focus = self.current_focus
+            self._last_sent_exposure_us = self.current_exposure_us
+            self._last_sent_gain = self.current_gain
+            self._last_sent_contrast = self.current_contrast
+            has_updates = True
+        else:
+            # Partial dispatch: only build registers for fields that changed
+            self.auto_exposure_enabled = self.auto_focus_enabled = False
+            
+            # Focus
+            if self.current_focus != self._last_sent_focus:
+                ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
+                if self.current_focus is not None:
+                    ctrl.setManualFocus(self.current_focus)
+                self._last_sent_focus = self.current_focus
+                has_updates = True
+
+            # Exposure & Gain (always atomically paired if either changes)
+            if (self.current_exposure_us != self._last_sent_exposure_us) or (self.current_gain != self._last_sent_gain):
+                ctrl.setManualExposure(self.current_exposure_us, self.current_gain)
+                self._last_sent_exposure_us = self.current_exposure_us
+                self._last_sent_gain = self.current_gain
+                has_updates = True
+
+            # Contrast
+            if self.current_contrast != self._last_sent_contrast:
+                ctrl.setContrast(self.current_contrast)
+                self._last_sent_contrast = self.current_contrast
+                has_updates = True
+
+        if has_updates:
+            try:
+                self._control_queue.send(ctrl)
+            except Exception as ctrl_err:
+                logger.warning(f"[CONTROL] Control queue send failed: {ctrl_err}")
+
         if self._active_recording is not None:
             self._active_recording.add_settings_event(self._recording_settings_snapshot())
 
@@ -1153,6 +1232,7 @@ class OakCameraService:
         return {
             "control_mode": self.control_mode,
             "exposure": round(self.current_exposure_us / 1000, 3),
+            "exposure_us": self.current_exposure_us,
             "gain": self.current_gain,
             "focus": self.current_focus,
             "focus_available": self.focus_available,
@@ -1161,6 +1241,7 @@ class OakCameraService:
             "auto_exposure": False,
             "auto_focus": False,
             "calibrating": self._calibrating,
+            "telemetry": self._latest_telemetry,
         }
 
     def calibrate_auto_controls(self) -> dict:
@@ -1641,21 +1722,12 @@ class OakCameraService:
     # ==================== Fixed-control Runtime Enforcement ====================
 
     def _enforce_fixed_controls(self) -> None:
-        """Re-send fixed focus, exposure, brightness and contrast through the runtime control queue."""
+        """Re-send all fixed focus, exposure, brightness and contrast through the runtime control queue."""
         if not self._is_running or not self.is_connected or self._control_queue is None:
             return
         try:
-            ctrl = dai.CameraControl()
-            ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
-            if self.current_focus is not None:
-                ctrl.setManualFocus(self.current_focus)
-            ctrl.setManualExposure(self.current_exposure_us, self.current_gain)
-            hw_b = max(-10, min(10, int(round(self.current_brightness / 5.0))))
-            hw_c = max(-10, min(10, int(round((self.current_contrast - 50) / 5.0))))
-            ctrl.setBrightness(hw_b)
-            ctrl.setContrast(hw_c)
-            self._control_queue.send(ctrl)
-            logger.info(f"[CONTROL] Fixed controls sent after pipeline startup — brightness={hw_b} contrast={hw_c}")
+            self.update_controls(force_full=True)
+            logger.info(f"[CONTROL] Full fixed controls sent after pipeline startup — exp={self.current_exposure_us}us gain={self.current_gain} contrast={self.current_contrast} brightness={self.current_brightness}")
         except Exception as e:
             if "closed" in str(e).lower() or "xlink" in str(e).lower():
                 self._on_device_lost("Control queue closed during fixed-control enforcement")

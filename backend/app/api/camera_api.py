@@ -12,6 +12,7 @@ from app.services import camera_service
 from app.schemas.camera_live_control_schema import CameraLiveControl
 from app.services.oak_camera_service import oak_camera_service
 from app.services.realtime_log_service import realtime_log_service
+from app.services.camera_limits_service import compute_camera_control_limits
 
 logger = logging.getLogger("camera-api")
 
@@ -99,6 +100,23 @@ def get_cameras(db: Session = Depends(get_db)):
         logger.error(f"[API ERROR] GET /camera/: {e}", exc_info=True)
         realtime_log_service.add_log("camera", "CRASH", f"Get cameras failed: {e}", "error")
         raise HTTPException(status_code=500, detail=f"Internal error fetching cameras: {e}")
+
+
+@router.get("/limits/{camera_id}")
+@router.get("/{camera_id}/limits")
+def get_camera_limits_endpoint(camera_id: int, db: Session = Depends(get_db)):
+    """Return dynamic three-zone limits for camera controls based on configured FPS and resolution."""
+    try:
+        camera = db.query(Camera).filter(Camera.id == camera_id).first()
+        fps = camera.fps if camera else 30
+        resolution = camera.resolution if camera else "1920x1080"
+        inst = oak_camera_service.get_instance(camera_id)
+        if inst and getattr(inst, "_configured_fps", 0) > 0:
+            fps = inst._configured_fps
+        return compute_camera_control_limits(camera_id=camera_id, configured_fps=fps, resolution=resolution)
+    except Exception as e:
+        logger.error(f"[API ERROR] GET /camera/limits/{camera_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to compute limits: {e}")
 
 
 @router.patch("/live-controls/{camera_id}")

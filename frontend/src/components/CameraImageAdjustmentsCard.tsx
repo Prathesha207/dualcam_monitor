@@ -25,14 +25,14 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
   const [gain, setGain] = useState<number>(config?.gain ?? 400);
   const [focus, setFocus] = useState<number>(config?.focus ?? 0);
   const [brightness, setBrightness] = useState<number>(config?.brightness ?? 0);
-  const [contrast, setContrast] = useState<number>(config?.contrast ?? 50);
+  const [contrast, setContrast] = useState<number>(config?.contrast ?? 0);
   const [syncStatus, setSyncStatus] = useState<'synced' | 'adjusting'>('synced');
   const [calibrating, setCalibrating] = useState(false);
   const [calibrationError, setCalibrationError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const presetRef = useRef({ exposure: config?.exposure ?? 8, gain: config?.gain ?? 400, focus: config?.focus ?? 0, brightness: config?.brightness ?? 0, contrast: config?.contrast ?? 50 });
+  const presetRef = useRef({ exposure: config?.exposure ?? 8, gain: config?.gain ?? 400, focus: config?.focus ?? 0, brightness: config?.brightness ?? 0, contrast: config?.contrast ?? 0 });
 
   // Network queuing & pacing refs for ultra-smooth responsiveness
   const inFlightRef = useRef(false);
@@ -50,7 +50,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
       gain: config.gain ?? 400,
       focus: config.focus ?? 0,
       brightness: config.brightness ?? 0,
-      contrast: config.contrast ?? 50,
+      contrast: config.contrast ?? 0,
     };
 
     // If user is not currently in the middle of dragging a slider, update displayed values
@@ -576,11 +576,11 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
               </div>
               <input
                 type="range"
-                min={0}
-                max={100}
+                min={-10}
+                max={10}
                 value={contrast}
                 onChange={(e) => handleContrastChange(parseInt(e.target.value, 10))}
-                style={getSliderStyle(contrast, 0, 100)}
+                style={getSliderStyle(contrast, -10, 10)}
                 className="w-full h-1.5 rounded cursor-pointer transition-all"
               />
             </div>

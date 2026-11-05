@@ -7,17 +7,18 @@ export interface CameraConfig {
   sourceName: string;
   resolution: '1920x1080' | '1280x720';
   targetFps: number;
+  fps?: number;
   recordingFormat?: 'AVI' | 'MP4' | 'FFV1';
   recordingVideoPath?: string | null;
   clipDurationMinutes?: number;
   rotationAngle?: number;
   controlMode?: 'auto' | 'manual';
-  exposure: number; // 0 - 100
+  exposure: number;
   gain?: number;
   focus?: number;
   focusAvailable?: boolean;
   brightness: number; // -50 to +50
-  contrast: number; // 0 to 100
+  contrast: number; // -10 to +10
   iso: number;
   autoFocus: boolean;
   autoExposure?: boolean;
@@ -25,6 +26,13 @@ export interface CameraConfig {
   is_enabled?: boolean;
   connectionQuality?: 'Excellent' | 'Good' | 'Fair' | 'Poor';
   ipAddress: string;
+  telemetry?: {
+    iso?: number | null;
+    exposure_us?: number | null;
+    exposure_ms?: number | null;
+    lens_position?: number | null;
+    timestamp?: number | null;
+  };
 }
 
 export interface ProcessStep {

@@ -329,7 +329,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
         gain: localConfig.gain ?? localConfig.iso ?? 400,
         focus: (localConfig.focus && localConfig.focus > 0) ? localConfig.focus : 128,
         brightness: localConfig.brightness ?? 0,
-        contrast: localConfig.contrast ?? 50,
+        contrast: localConfig.contrast ?? 0,
         auto_focus: false,
         auto_exposure: false,
         recording_format: localConfig.recordingFormat || 'MP4',

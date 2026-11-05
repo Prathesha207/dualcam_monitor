@@ -63,7 +63,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
   const [gain, setGain] = useState(400);
   const [focus, setFocus] = useState(128);
   const [brightness, setBrightness] = useState(0);
-  const [contrast, setContrast] = useState(50);
+  const [contrast, setContrast] = useState(0);
 
   // Hardware scan & loading states
   const [availableDevices, setAvailableDevices] = useState<HwDevice[]>([]);
@@ -97,7 +97,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
     setGain(camera.gain ?? camera.iso ?? 400);
     setFocus((camera.focus && camera.focus > 0) ? camera.focus : 128);
     setBrightness(camera.brightness ?? 0);
-    setContrast(camera.contrast ?? 50);
+    setContrast(camera.contrast ?? 0);
 
     // Load default desktop storage path
     cameraService

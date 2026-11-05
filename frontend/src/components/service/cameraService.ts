@@ -152,6 +152,16 @@ export const cameraService = {
     return res.data;
   },
 
+  async getCameraLimits(id: string | number) {
+    try {
+      const res = await api.get(`/camera/limits/${id}`);
+      return res.data;
+    } catch (err) {
+      console.warn(`[cameraService] getCameraLimits failed for ${id}:`, err);
+      return null;
+    }
+  },
+
   async setStoragePath(path: string | null): Promise<{ storage_path: string; default_path: string }> {
     const res = await api.post("/camera/storage-path", { path });
     return res.data;
