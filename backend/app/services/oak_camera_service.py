@@ -398,8 +398,20 @@ class OakCameraService:
                         return d
 
             # Target ONLY this IP address via dai.DeviceInfo
+            # For RVC4 (OAK4) devices connected via USB networking (e.g. 172.22.x.x)
+            # or Ethernet, we must explicitly set TCP/IP protocol and GATE state,
+            # otherwise DepthAI's discovery layer cannot find the streaming endpoint.
             try:
-                return dai.DeviceInfo(valid_ip)
+                device_info = dai.DeviceInfo(valid_ip)
+                # Try to set TCP/IP protocol and GATE state explicitly (required for RVC4 over USB network)
+                try:
+                    device_info.protocol = dai.XLinkProtocol.X_LINK_TCP_IP
+                    device_info.state = dai.XLinkDeviceState.X_LINK_GATE
+                    logger.info(f"[DEVICE] IP connection configured with TCP/IP+GATE state for RVC4: {valid_ip}")
+                except AttributeError:
+                    # Older DepthAI versions may not have these; fall back to plain DeviceInfo
+                    logger.debug(f"[DEVICE] XLinkProtocol/XLinkDeviceState not available, using plain DeviceInfo for {valid_ip}")
+                return device_info
             except Exception as e:
                 raise RuntimeError(f"Failed to create connection for IP '{valid_ip}': {e}")
 
