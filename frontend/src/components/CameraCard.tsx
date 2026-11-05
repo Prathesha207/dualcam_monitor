@@ -8,8 +8,11 @@ import {
   Play,
   Square,
   Power,
+  Maximize,
+  Minimize,
   Maximize2,
   Minimize2,
+  Fullscreen,
   SlidersHorizontal,
   Settings2,
   Camera,
@@ -132,6 +135,39 @@ export const CameraCard: React.FC<CameraCardProps> = ({
       resetZoom();
     }
   }, [isStreaming, resetZoom]);
+
+  // True Monitor Fullscreen Tracking & Handlers
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const isCurrentFs = Boolean(
+        document.fullscreenElement && document.fullscreenElement === containerRef.current
+      );
+      setIsFullscreen(isCurrentFs);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const toggleFullscreen = useCallback(async () => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      try {
+        await containerRef.current.requestFullscreen();
+      } catch (err) {
+        console.warn('[CameraCard] requestFullscreen failed:', err);
+      }
+    } else {
+      try {
+        await document.exitFullscreen();
+      } catch (err) {
+        console.warn('[CameraCard] exitFullscreen failed:', err);
+      }
+    }
+  }, []);
 
   // Resize observer to maintain proper video aspect ratio without distortion
   useEffect(() => {
@@ -523,6 +559,64 @@ export const CameraCard: React.FC<CameraCardProps> = ({
           </div>
         )}
 
+        {/* Floating Fullscreen Action Bar (Top Right of Video Canvas in Fullscreen) */}
+        {isFullscreen && isStreaming && (
+          <div
+            className="absolute top-4 right-4 z-40 flex items-center gap-2 bg-black/80 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-white/20 shadow-2xl animate-in fade-in duration-150 select-none"
+            onMouseDown={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2 pr-2 border-r border-white/20">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-xs font-bold text-white tracking-wide">
+                {camera.sourceName || `Camera ${index}`}
+              </span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-white/10 text-white/90">
+                {camera.targetFps || camera.fps || 30} FPS
+              </span>
+            </div>
+
+            {/* Quick Snapshot in Fullscreen */}
+            <button
+              type="button"
+              onClick={handleSnapshotClick}
+              title="Take instant snapshot"
+              className="p-1.5 rounded-xl hover:bg-white/20 text-white/90 hover:text-white transition-colors cursor-pointer"
+            >
+              <Camera className="w-4 h-4" />
+            </button>
+
+            {/* Toggle Camera Tuning Popover in Fullscreen */}
+            <button
+              type="button"
+              onClick={() => {
+                if (camera.controlMode !== 'manual') {
+                  onUpdateLiveControls?.(cameraId, { controlMode: 'manual' });
+                }
+                setIsTuningOpen((prev) => !prev);
+              }}
+              title={isTuningOpen ? 'Close camera tuning' : 'Adjust exposure, gain, focus & tone in fullscreen'}
+              className={`p-1.5 rounded-xl transition-colors cursor-pointer ${
+                isTuningOpen
+                  ? 'bg-cyan-500 text-white shadow-xs'
+                  : 'hover:bg-white/20 text-white/90 hover:text-white'
+              }`}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
+
+            {/* Exit Fullscreen Button */}
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              title="Exit Fullscreen (Esc)"
+              className="p-1.5 rounded-xl bg-white/10 hover:bg-rose-600 text-white transition-colors cursor-pointer ml-1"
+            >
+              <Minimize2 className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* In-Canvas Camera Tuning Popover (Floating Over Video Canvas) */}
         {isTuningOpen && !isRecording && camera.controlMode === 'manual' && !connectionError && (
           <CameraTuningPopover
@@ -651,13 +745,27 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <Camera className="w-3.5 h-3.5" />
           </button>
 
-          {/* 1. Expand / Fullscreen */}
+          {/* 1. Expand within Dashboard Grid (Dual <-> Single Card) */}
           <button
             onClick={() => onExpandToggle(cameraId)}
-            title={isExpanded ? 'Minimize back to dual view' : 'Expand this camera to full canvas'}
+            title={isExpanded ? 'Minimize back to dual view' : 'Expand this camera in dashboard'}
             className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--text-primary)] transition-all cursor-pointer active:scale-95 shadow-xs"
           >
-            {isExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            {isExpanded ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
+          </button>
+
+          {/* 2. Fullscreen Button (Physical Monitor Fullscreen) */}
+          <button
+            onClick={toggleFullscreen}
+            disabled={!isStreaming || Boolean(connectionError)}
+            title={isFullscreen ? 'Exit Fullscreen (Esc)' : 'View in full screen (Monitor Fullscreen)'}
+            className={`flex items-center justify-center w-8 h-8 rounded-xl border transition-all cursor-pointer active:scale-95 shadow-xs ${
+              isFullscreen
+                ? 'bg-[var(--accent-pond)] text-white border-[var(--accent-pond)]'
+                : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border-[var(--btn-secondary-border)] text-[var(--text-primary)]'
+            }`}
+          >
+            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Fullscreen className="w-3.5 h-3.5" />}
           </button>
 
           {/* 2. Edit Camera Config - Enabled during streaming (Disabled while recording) */}
