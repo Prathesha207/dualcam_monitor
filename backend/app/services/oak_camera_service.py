@@ -889,6 +889,15 @@ class OakCameraService:
                     _first_frame_logged = True
 
                 display_bgr = raw_bgr
+                b = self.current_brightness
+                c = self.current_contrast
+                if b != 0 or (c is not None and c != 50):
+                    alpha = (c / 50.0) if (c is not None and c > 0) else 1.0
+                    beta = float(b)
+                    try:
+                        display_bgr = cv2.convertScaleAbs(raw_bgr, alpha=alpha, beta=beta)
+                    except Exception:
+                        display_bgr = raw_bgr
 
                 if self.control_mode == "auto" and not self._calibrating:
                     self._run_monitor(display_bgr)

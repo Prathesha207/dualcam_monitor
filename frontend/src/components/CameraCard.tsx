@@ -477,6 +477,9 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <img
               crossOrigin="anonymous"
               src={streamUrl}
+              style={{
+                filter: `brightness(${100 + (camera.brightness ?? 0) * 1.2}%) contrast(${((camera.contrast ?? 50) / 50) * 100}%)`,
+              }}
               className={`w-full h-full object-contain pointer-events-none transition-opacity duration-200 ${
                 streamError ? 'opacity-30' : 'opacity-100'
               }`}
