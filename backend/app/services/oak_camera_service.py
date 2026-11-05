@@ -407,7 +407,17 @@ class OakCameraService:
                 try:
                     device_info.protocol = dai.XLinkProtocol.X_LINK_TCP_IP
                     device_info.state = dai.XLinkDeviceState.X_LINK_GATE
-                    logger.info(f"[DEVICE] IP connection configured with TCP/IP+GATE state for RVC4: {valid_ip}")
+                    # X_LINK_RVC4 platform is required when state is GATE;
+                    # without it DepthAI raises "Gate only supports RVC3 and RVC4 platforms"
+                    try:
+                        device_info.platform = dai.XLinkPlatform.X_LINK_RVC4
+                    except AttributeError:
+                        # Very old DepthAI builds may not expose X_LINK_RVC4; try RVC3 as fallback
+                        try:
+                            device_info.platform = dai.XLinkPlatform.X_LINK_RVC3
+                        except AttributeError:
+                            logger.warning("[DEVICE] XLinkPlatform.X_LINK_RVC4/RVC3 not available; Gate connection may fail")
+                    logger.info(f"[DEVICE] IP connection configured with TCP/IP+GATE+RVC4 for: {valid_ip}")
                 except AttributeError:
                     # Older DepthAI versions may not have these; fall back to plain DeviceInfo
                     logger.debug(f"[DEVICE] XLinkProtocol/XLinkDeviceState not available, using plain DeviceInfo for {valid_ip}")
