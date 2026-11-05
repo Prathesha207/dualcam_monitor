@@ -794,16 +794,18 @@ class OakCameraService:
                     logger.warning(f"[MJPEG] Frame extraction failed: {e}")
                     continue
 
-                self._latest_jpeg = jpeg
-                frames += 1
+                # When brightness is neutral (0), push hardware VPU JPEG (0 CPU overhead)
+                if int(self.current_brightness or 0) == 0:
+                    self._latest_jpeg = jpeg
+                    frames += 1
 
-                loop = self._server_loop
-                if loop is not None and not loop.is_closed():
-                    loop.call_soon_threadsafe(self._push_sync, jpeg)
-                    frames_pushed += 1
-                else:
-                    self._push_sync(jpeg)
-                    frames_pushed += 1
+                    loop = self._server_loop
+                    if loop is not None and not loop.is_closed():
+                        loop.call_soon_threadsafe(self._push_sync, jpeg)
+                        frames_pushed += 1
+                    else:
+                        self._push_sync(jpeg)
+                        frames_pushed += 1
 
                 now = time.time()
                 if now - last_log >= 2.0:
@@ -951,6 +953,22 @@ class OakCameraService:
                 self._latest_bgr = display_bgr
                 self._latest_bgr_seq = seq_num
                 self._latest_frame_data = (display_bgr, seq_num, ts_sec)
+
+                # When software brightness is active (b != 0), encode and push display_bgr to stream
+                # so the live preview in the browser has 100% true parity with the MP4 recording
+                if b != 0:
+                    try:
+                        ret, buf = cv2.imencode(".jpg", display_bgr, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                        if ret:
+                            jpeg_bytes = buf.tobytes()
+                            self._latest_jpeg = jpeg_bytes
+                            loop = self._server_loop
+                            if loop is not None and not loop.is_closed():
+                                loop.call_soon_threadsafe(self._push_sync, jpeg_bytes)
+                            else:
+                                self._push_sync(jpeg_bytes)
+                    except Exception as enc_err:
+                        logger.debug(f"[CONVERT] Brightness stream encode failed: {enc_err}")
 
                 if self._active_recording is not None:
                     self._active_recording.add_frame(display_bgr)
