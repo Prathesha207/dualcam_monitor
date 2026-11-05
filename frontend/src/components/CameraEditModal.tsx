@@ -36,6 +36,12 @@ interface HwDevice {
   protocol?: string;
 }
 
+const sanitizeContrast = (val: any): number => {
+  if (typeof val !== 'number' || isNaN(val)) return 0;
+  if (val > 10) return Math.max(-10, Math.min(10, Math.round((val - 50) / 5)));
+  return Math.max(-10, Math.min(10, val));
+};
+
 export const CameraEditModal: React.FC<CameraEditModalProps> = ({
   isOpen,
   onClose,
@@ -97,7 +103,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
     setGain(camera.gain ?? camera.iso ?? 400);
     setFocus((camera.focus && camera.focus > 0) ? camera.focus : 128);
     setBrightness(camera.brightness ?? 0);
-    setContrast(camera.contrast ?? 0);
+    setContrast(sanitizeContrast(camera.contrast));
 
     // Load default desktop storage path
     cameraService
@@ -237,7 +243,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
         iso: gain,
         focus: (focus && focus > 0) ? focus : 128,
         brightness,
-        contrast,
+        contrast: sanitizeContrast(contrast),
       };
 
       // Also persist live image controls if changed
@@ -247,7 +253,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
           gain,
           focus: (focus && focus > 0) ? focus : 128,
           brightness,
-          contrast,
+          contrast: sanitizeContrast(contrast),
           control_mode: controlMode,
           save_to_db: true,
         }).catch(() => { });

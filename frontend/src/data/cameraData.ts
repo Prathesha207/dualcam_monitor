@@ -12,7 +12,7 @@ export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   focus: undefined,
   focusAvailable: false,
   brightness: 0,
-  contrast: 50,
+  contrast: 0,
   iso: 400,
   autoFocus: false,
   autoExposure: false,

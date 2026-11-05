@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 from typing import Optional, Literal
 
@@ -21,6 +21,19 @@ class CameraBase(BaseModel):
 
     brightness: Optional[int] = Field(default=0, ge=-50, le=50)
     contrast: Optional[int] = Field(default=0, ge=-10, le=10)
+
+    @field_validator("contrast", mode="before")
+    @classmethod
+    def sanitize_contrast(cls, v):
+        if v is None:
+            return 0
+        try:
+            val = int(v)
+            if val > 10:  # Legacy 0..100 scale (where 50 was neutral)
+                return max(-10, min(10, int(round((val - 50.0) / 5.0))))
+            return max(-10, min(10, val))
+        except (ValueError, TypeError):
+            return 0
 
     # Legacy status fields; camera autofocus and auto exposure are always off.
     auto_exposure: bool = False
@@ -53,6 +66,19 @@ class CameraUpdate(BaseModel):
 
     brightness: Optional[int] = Field(default=None, ge=-50, le=50)
     contrast: Optional[int] = Field(default=None, ge=-10, le=10)
+
+    @field_validator("contrast", mode="before")
+    @classmethod
+    def sanitize_contrast(cls, v):
+        if v is None:
+            return None
+        try:
+            val = int(v)
+            if val > 10:  # Legacy 0..100 scale (where 50 was neutral)
+                return max(-10, min(10, int(round((val - 50.0) / 5.0))))
+            return max(-10, min(10, val))
+        except (ValueError, TypeError):
+            return None
 
     auto_exposure: Optional[bool] = None
     auto_focus: Optional[bool] = None

@@ -43,6 +43,12 @@ interface HwDevice {
 
 const isUsbAddress = (ip?: string) => !ip || ip.toLowerCase().includes('usb') || /^[0-9a-f-]{8,}$/i.test(ip || '');
 
+const sanitizeContrast = (val: any): number => {
+  if (typeof val !== 'number' || isNaN(val)) return 0;
+  if (val > 10) return Math.max(-10, Math.min(10, Math.round((val - 50) / 5)));
+  return Math.max(-10, Math.min(10, val));
+};
+
 export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
   isOpen,
   onClose,
@@ -51,7 +57,10 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
   onReconnect,
   isRecording = false,
 }) => {
-  const [localConfig, setLocalConfig] = useState<CameraConfig>({ ...config });
+  const [localConfig, setLocalConfig] = useState<CameraConfig>({
+    ...config,
+    contrast: sanitizeContrast(config?.contrast),
+  });
 
   const [savedCameras, setSavedCameras] = useState<SavedCameraRow[]>([]);
   const [hwDevices, setHwDevices] = useState<HwDevice[]>([]);
@@ -160,7 +169,11 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       return;
     }
 
-    setLocalConfig({ ...config, targetFps: config.targetFps || 30 });
+    setLocalConfig({
+      ...config,
+      targetFps: config.targetFps || 30,
+      contrast: sanitizeContrast(config?.contrast),
+    });
 
     cameraService
       .getStoragePath()
@@ -212,7 +225,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
       gain: (row as any).gain ?? localConfig.gain,
       focus: (row as any).focus && (row as any).focus > 0 ? (row as any).focus : (localConfig.focus || 128),
       brightness: (row as any).brightness ?? localConfig.brightness,
-      contrast: (row as any).contrast ?? localConfig.contrast,
+      contrast: sanitizeContrast((row as any).contrast ?? localConfig.contrast),
       recordingVideoPath: storagePath || localConfig.recordingVideoPath,
       connected: true,
     };
@@ -329,7 +342,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
         gain: localConfig.gain ?? localConfig.iso ?? 400,
         focus: (localConfig.focus && localConfig.focus > 0) ? localConfig.focus : 128,
         brightness: localConfig.brightness ?? 0,
-        contrast: localConfig.contrast ?? 0,
+        contrast: sanitizeContrast(localConfig.contrast),
         auto_focus: false,
         auto_exposure: false,
         recording_format: localConfig.recordingFormat || 'MP4',
@@ -412,7 +425,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
           gain: localConfig.gain ?? localConfig.iso,
           focus: (localConfig.focus && localConfig.focus > 0) ? localConfig.focus : 128,
           brightness: localConfig.brightness,
-          contrast: localConfig.contrast,
+          contrast: sanitizeContrast(localConfig.contrast),
           control_mode: localConfig.controlMode || 'manual',
           resolution: localConfig.resolution,
           fps: localConfig.targetFps,
@@ -422,7 +435,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
           gain: localConfig.gain ?? localConfig.iso,
           focus: (localConfig.focus && localConfig.focus > 0) ? localConfig.focus : 128,
           brightness: localConfig.brightness,
-          contrast: localConfig.contrast,
+          contrast: sanitizeContrast(localConfig.contrast),
           control_mode: localConfig.controlMode || 'manual',
           save_to_db: true,
         });

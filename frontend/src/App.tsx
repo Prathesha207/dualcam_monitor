@@ -665,7 +665,7 @@ export default function App() {
           focus: 128,
           focusAvailable: true,
           brightness: 0,
-          contrast: 50,
+          contrast: 0,
           autoFocus: false,
           connected: false,
           ipAddress: '',

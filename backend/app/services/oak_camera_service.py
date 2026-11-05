@@ -209,7 +209,8 @@ class OakCameraService:
                     if cam.brightness is not None:
                         self.current_brightness = int(cam.brightness)
                     if cam.contrast is not None:
-                        self.current_contrast = int(cam.contrast)
+                        c_val = int(cam.contrast)
+                        self.current_contrast = max(-10, min(10, int(round((c_val - 50.0) / 5.0)))) if c_val > 10 else max(-10, min(10, c_val))
             finally:
                 db.close()
         except Exception as e:
@@ -1284,7 +1285,7 @@ class OakCameraService:
             self.current_exposure_us = exp_us
             self.current_gain = max(100, min(1600, iso))
             self.control_mode = "auto"
-            self.current_brightness, self.current_contrast = 0, 50
+            self.current_brightness, self.current_contrast = 0, 0
             self.auto_exposure_enabled = self.auto_focus_enabled = False
             self._save_calibrated_preset()
             return {"status": "ok", **self._camera_settings()}
@@ -1657,7 +1658,11 @@ class OakCameraService:
                         }
 
                 self.current_brightness = int(config.brightness or 0)
-                self.current_contrast = int(config.contrast if config.contrast is not None and config.contrast != 0 else 50)
+                if config.contrast is not None:
+                    raw_c = int(config.contrast)
+                    self.current_contrast = max(-10, min(10, int(round((raw_c - 50.0) / 5.0)))) if raw_c > 10 else max(-10, min(10, raw_c))
+                else:
+                    self.current_contrast = 0
 
                 with self._pipeline_lock:
                     self._pipeline = dai.Pipeline(self.device)

@@ -128,10 +128,50 @@ def test_safe_fps_and_limits():
     print("  ✓ Invalid FPS inputs (0, -10, None, string) securely fall back to default=30 without crashing")
 
 
+def test_contrast_schema_sanitization():
+    print("\n--- [TEST 4] Testing Camera Schema Contrast Sanitization (422 Prevention) ---")
+    from app.schemas.camera_schema import CameraCreate, CameraUpdate
+    from app.schemas.camera_live_control_schema import CameraLiveControl
+
+    # 1. CameraCreate with legacy contrast 50 -> must sanitize to 0 without 422
+    c50 = CameraCreate(name="Cam 1", ip_address="169.254.21.191", contrast=50)
+    assert c50.contrast == 0, f"Expected 0, got {c50.contrast}"
+    print("  ✓ CameraCreate(contrast=50) successfully sanitized to 0 (neutral)")
+
+    # 2. CameraCreate with legacy contrast 100 -> must sanitize to 10
+    c100 = CameraCreate(name="Cam 1", ip_address="169.254.21.191", contrast=100)
+    assert c100.contrast == 10, f"Expected 10, got {c100.contrast}"
+    print("  ✓ CameraCreate(contrast=100) successfully sanitized to 10")
+
+    # 3. CameraCreate with new valid values: 0, -5, +8
+    for v in [0, -5, 8]:
+        c = CameraCreate(name="Cam 1", ip_address="169.254.21.191", contrast=v)
+        assert c.contrast == v, f"Expected {v}, got {c.contrast}"
+    print("  ✓ CameraCreate with valid [-10..+10] values preserved intact")
+
+    # 4. CameraUpdate with legacy contrast 50
+    u50 = CameraUpdate(contrast=50)
+    assert u50.contrast == 0, f"Expected 0, got {u50.contrast}"
+    print("  ✓ CameraUpdate(contrast=50) successfully sanitized to 0")
+
+    # 5. CameraLiveControl with legacy contrast 50
+    l50 = CameraLiveControl(contrast=50)
+    assert l50.contrast == 0, f"Expected 0, got {l50.contrast}"
+    print("  ✓ CameraLiveControl(contrast=50) successfully sanitized to 0")
+
+    # 6. None values
+    u_none = CameraUpdate(contrast=None)
+    assert u_none.contrast is None, f"Expected None, got {u_none.contrast}"
+    l_none = CameraLiveControl(contrast=None)
+    assert l_none.contrast is None, f"Expected None, got {l_none.contrast}"
+    print("  ✓ Optional None values passed through cleanly for partial updates")
+
+
 if __name__ == "__main__":
     test_brightness_lut()
     test_contrast_migration()
     test_safe_fps_and_limits()
+    test_contrast_schema_sanitization()
     print("\n=========================================")
     print("  ALL TESTS PASSED SUCCESSFULLY! (100%)  ")
     print("=========================================")

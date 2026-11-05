@@ -316,12 +316,12 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
     try {
       const settings = await cameraService.recalibrateControls();
       const sharpFocus = (typeof settings.focus === 'number' && settings.focus > 0) ? settings.focus : focus;
-      presetRef.current = { exposure: settings.exposure, gain: settings.gain, focus: sharpFocus, brightness: settings.brightness ?? 0, contrast: settings.contrast ?? 50 };
+      presetRef.current = { exposure: settings.exposure, gain: settings.gain, focus: sharpFocus, brightness: settings.brightness ?? 0, contrast: settings.contrast ?? 0 };
       setExposure(settings.exposure);
       setGain(settings.gain);
       setFocus(sharpFocus);
       setBrightness(settings.brightness ?? 0);
-      setContrast(settings.contrast ?? 50);
+      setContrast(settings.contrast ?? 0);
       setMode('auto');
       onUpdateConfig?.({
         controlMode: 'auto',
@@ -331,7 +331,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
         focus: sharpFocus,
         focusAvailable: Boolean(settings.focus_available),
         brightness: settings.brightness ?? 0,
-        contrast: settings.contrast ?? 50,
+        contrast: settings.contrast ?? 0,
         autoExposure: false,
         autoFocus: false,
       });
