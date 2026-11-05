@@ -141,8 +141,8 @@ class OakCameraService:
         self.current_exposure_us: int = 8000
         self._ae_limit_us = 10000
         self.current_gain: int = 400
-        self.current_focus: int | None = None
-        self.focus_available: bool = False
+        self.current_focus: int = 128
+        self.focus_available: bool = True
         self.auto_exposure_enabled: bool = False
         self.auto_focus_enabled: bool = False
         self._latest_metadata: tuple[int, int, int | None] | None = None
@@ -176,8 +176,11 @@ class OakCameraService:
                         self.current_exposure_us = int(exp_val * 1000) if exp_val <= 1000 else int(exp_val)
                     if cam.gain is not None:
                         self.current_gain = int(cam.gain)
-                    if cam.focus is not None:
+                    if cam.focus is not None and int(cam.focus) > 0:
                         self.current_focus = int(cam.focus)
+                        self.focus_available = True
+                    else:
+                        self.current_focus = 128
                         self.focus_available = True
                     if cam.brightness is not None:
                         self.current_brightness = int(cam.brightness)
@@ -499,13 +502,13 @@ class OakCameraService:
                 exposure = int(config.exposure if config.exposure is not None else 8)
                 exposure = exposure * 1000 if exposure <= 1000 else exposure
                 gain = max(100, min(1600, int(config.gain if config.gain is not None else 400)))
-                focus = int(config.focus) if config.focus is not None else None
+                focus = int(config.focus) if (config.focus is not None and int(config.focus) > 0) else 128
                 if control_mode == "auto" and exposure == 16000 and gain == 400 and focus == 120:
-                    exposure, focus = 8000, None
+                    exposure, focus = 8000, 128
                     self._legacy_preset_migration = True
             except (TypeError, ValueError):
                 logger.warning("[PIPELINE] Invalid saved camera values; using 8ms/ISO400 preset")
-                exposure, gain, focus = 8000, 400, None
+                exposure, gain, focus = 8000, 400, 128
 
             self.current_exposure_us = max(100, min(33000, exposure))
             self.current_gain = gain
@@ -1241,7 +1244,7 @@ class OakCameraService:
                 camera.control_mode = control_mode
                 camera.exposure = round(self.current_exposure_us / 1000, 3)
                 camera.gain = float(self.current_gain)
-                camera.focus = self.current_focus
+                camera.focus = self.current_focus if (self.current_focus is not None and self.current_focus > 0) else (camera.focus or 128)
                 camera.brightness = self.current_brightness
                 camera.contrast = self.current_contrast
                 camera.auto_exposure = False

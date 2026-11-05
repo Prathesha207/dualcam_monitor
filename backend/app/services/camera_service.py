@@ -99,6 +99,9 @@ def create_camera(db: Session, data: CameraCreate):
 
         camera.exposure = camera.exposure if camera.exposure is not None else 8
         camera.gain = camera.gain if camera.gain is not None else 400
+        camera.focus = camera.focus if (camera.focus is not None and camera.focus > 0) else 128
+        camera.brightness = camera.brightness if camera.brightness is not None else 0
+        camera.contrast = camera.contrast if camera.contrast is not None else 50
         camera.auto_exposure = False
         camera.auto_focus = False
 
@@ -205,6 +208,12 @@ def update_camera_partial(db: Session, camera_id: int, data: CameraUpdate):
             camera.exposure = 8
         if camera.gain is None:
             camera.gain = 400
+        if camera.focus is None or camera.focus <= 0:
+            camera.focus = 128
+        if camera.brightness is None:
+            camera.brightness = 0
+        if camera.contrast is None:
+            camera.contrast = 50
         if camera.auto_exposure is None:
             camera.auto_exposure = False
         if camera.auto_focus is None:

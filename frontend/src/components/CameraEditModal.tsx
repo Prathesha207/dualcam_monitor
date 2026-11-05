@@ -61,7 +61,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
   // Manual image adjustments
   const [exposure, setExposure] = useState(8);
   const [gain, setGain] = useState(400);
-  const [focus, setFocus] = useState(0);
+  const [focus, setFocus] = useState(128);
   const [brightness, setBrightness] = useState(0);
   const [contrast, setContrast] = useState(50);
 
@@ -95,7 +95,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
     // Live adjustments
     setExposure(camera.exposure ?? 8);
     setGain(camera.gain ?? camera.iso ?? 400);
-    setFocus(camera.focus ?? 0);
+    setFocus((camera.focus && camera.focus > 0) ? camera.focus : 128);
     setBrightness(camera.brightness ?? 0);
     setContrast(camera.contrast ?? 50);
 
@@ -235,7 +235,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
         exposure,
         gain,
         iso: gain,
-        focus,
+        focus: (focus && focus > 0) ? focus : 128,
         brightness,
         contrast,
       };
@@ -245,7 +245,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
         await cameraService.updateLiveControls(camera.id, {
           exposure,
           gain,
-          focus,
+          focus: (focus && focus > 0) ? focus : 128,
           brightness,
           contrast,
           control_mode: controlMode,

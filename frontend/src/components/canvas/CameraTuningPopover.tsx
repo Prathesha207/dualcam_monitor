@@ -26,7 +26,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
 }) => {
   const [exposure, setExposure] = useState<number>(config.exposure ?? 8);
   const [gain, setGain] = useState<number>(config.gain ?? config.iso ?? 400);
-  const [focus, setFocus] = useState<number>(config.focus ?? 128);
+  const [focus, setFocus] = useState<number>(config.focus && config.focus > 0 ? config.focus : 128);
   const [brightness, setBrightness] = useState<number>(config.brightness ?? 0);
   const [contrast, setContrast] = useState<number>(config.contrast ?? 50);
 
@@ -40,7 +40,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
   const initialRef = useRef({
     exposure: config.exposure ?? 8,
     gain: config.gain ?? config.iso ?? 400,
-    focus: config.focus ?? 128,
+    focus: config.focus && config.focus > 0 ? config.focus : 128,
     brightness: config.brightness ?? 0,
     contrast: config.contrast ?? 50,
   });
@@ -56,7 +56,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
     if (!inFlightRef.current && !pendingUpdateRef.current) {
       if (typeof config.exposure === 'number') setExposure(config.exposure);
       if (typeof config.gain === 'number') setGain(config.gain);
-      if (typeof config.focus === 'number') setFocus(config.focus);
+      if (typeof config.focus === 'number' && config.focus > 0) setFocus(config.focus);
       if (typeof config.brightness === 'number') setBrightness(config.brightness);
       if (typeof config.contrast === 'number') setContrast(config.contrast);
     }
@@ -259,11 +259,24 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         save_to_db: true,
       });
 
+      // Also ensure standard camera record in DB has the updated controls
+      if (cameraId) {
+        await cameraService.updateCamera(cameraId, {
+          exposure,
+          gain,
+          focus,
+          brightness,
+          contrast,
+          control_mode: 'manual',
+        }).catch(() => {});
+      }
+
       onUpdateConfig?.({
         exposure,
         gain,
         iso: gain,
         focus,
+        focusAvailable: true,
         brightness,
         contrast,
         controlMode: 'manual',

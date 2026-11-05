@@ -264,6 +264,11 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                     onUpdateLiveControls?.(cameraId, { controlMode: nextMode });
                     cameraService.updateLiveControls(cameraId, {
                       control_mode: nextMode,
+                      exposure: camera.exposure ?? 8,
+                      gain: camera.gain ?? camera.iso ?? 400,
+                      focus: (camera.focus && camera.focus > 0) ? camera.focus : 128,
+                      brightness: camera.brightness ?? 0,
+                      contrast: camera.contrast ?? 50,
                       save_to_db: true,
                     }).catch(console.warn);
                     setIsTuningOpen(nextMode === 'manual');
