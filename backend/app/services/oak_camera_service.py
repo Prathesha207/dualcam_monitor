@@ -13,6 +13,7 @@ import threading
 import time
 from collections import deque
 from queue import Queue, Empty
+from typing import Any, Optional, Dict
 
 import cv2
 import depthai as dai
