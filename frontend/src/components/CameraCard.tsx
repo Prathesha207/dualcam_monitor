@@ -14,7 +14,7 @@ import {
   Minimize2,
   Fullscreen,
   SlidersHorizontal,
-  Settings2,
+  Settings,
   Camera,
   AlertCircle,
   AlertTriangle,
@@ -445,7 +445,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 onClick={() => onOpenEdit(camera)}
                 className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-xl bg-[var(--bg-card-subtle)] hover:bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--border-color)] hover:border-[var(--accent-pond)] text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95"
               >
-                <Settings2 className="w-3.5 h-3.5" />
+                <Settings className="w-3.5 h-3.5" />
                 <span>{isIpCamera ? 'Edit Camera IP' : 'Edit Camera Config'}</span>
               </button>
               <button
@@ -785,7 +785,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border-[var(--btn-secondary-border)] text-[var(--text-primary)] cursor-pointer active:scale-95'
             }`}
           >
-            <Settings2 className="w-3.5 h-3.5" />
+            <Settings className="w-3.5 h-3.5" />
           </button>
 
           {/* 3. Manual Live Controls (Sliders: Exposure, Gain, Focus, Brightness, Contrast) - Enabled during streaming (Disabled while recording) */}
