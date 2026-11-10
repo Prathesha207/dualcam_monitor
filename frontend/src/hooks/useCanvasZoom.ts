@@ -117,9 +117,14 @@ export const useCanvasZoom = (enabled: boolean = true) => {
   // Mouse pan handlers
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      if (zoom <= 1.0 || e.button !== 0) return;
+      if (e.button !== 0) return;
       // Do not initiate pan drag if clicking an interactive button or badge
-      if ((e.target as HTMLElement).closest('button, [role="button"]')) return;
+      if ((e.target as HTMLElement).closest('button, input, select, textarea, [role="button"]')) return;
+
+      // Prevent native browser text/element drag selection across the video canvas
+      e.preventDefault();
+
+      if (zoom <= 1.0) return;
 
       setIsPanning(true);
       hasMovedRef.current = false;
@@ -137,6 +142,7 @@ export const useCanvasZoom = (enabled: boolean = true) => {
     if (!isPanning) return;
 
     const handleMouseMove = (e: MouseEvent) => {
+      e.preventDefault();
       const dx = e.clientX - dragStartRef.current.x;
       const dy = e.clientY - dragStartRef.current.y;
 
@@ -166,7 +172,18 @@ export const useCanvasZoom = (enabled: boolean = true) => {
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       // If clicking button, skip
-      if ((e.target as HTMLElement).closest('button, [role="button"]')) return;
+      if ((e.target as HTMLElement).closest('button, input, select, textarea, [role="button"]')) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      // Clear any accidental text selection ranges
+      try {
+        const sel = window.getSelection();
+        if (sel && sel.removeAllRanges) {
+          sel.removeAllRanges();
+        }
+      } catch {}
 
       if (zoom > 1.05) {
         resetZoom();

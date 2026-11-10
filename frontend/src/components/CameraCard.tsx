@@ -390,8 +390,8 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         ref={setCanvasRef}
         onMouseDown={isStreaming ? handleMouseDown : undefined}
         onDoubleClick={isStreaming ? handleDoubleClick : undefined}
-        style={{ cursor: isStreaming ? cursorStyle : 'default' }}
-        className="relative flex-1 min-h-[240px] sm:min-h-[300px] bg-black flex items-center justify-center overflow-hidden"
+        style={{ cursor: isStreaming ? cursorStyle : 'default', userSelect: 'none' }}
+        className="relative flex-1 min-h-[240px] sm:min-h-[300px] bg-black flex items-center justify-center overflow-hidden select-none outline-none"
       >
         {/* Flash effect on snapshot */}
         {snapshotFlash && (
@@ -507,13 +507,15 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         {/* State D: Live Video Feed (with smooth zoom and pan transform) */}
         {!connectionError && !isStarting && isEnabled && isStreaming && (
           <div
-            className="relative shrink-0 flex items-center justify-center"
-            style={{ ...fittedRect, ...transformStyle }}
+            className="relative shrink-0 flex items-center justify-center select-none"
+            style={{ ...fittedRect, ...transformStyle, userSelect: 'none' }}
           >
             <img
               crossOrigin="anonymous"
               src={streamUrl}
-              className={`w-full h-full object-contain pointer-events-none transition-opacity duration-200 ${
+              draggable={false}
+              onDragStart={(e) => e.preventDefault()}
+              className={`w-full h-full object-contain pointer-events-none select-none transition-opacity duration-200 ${
                 streamError ? 'opacity-30' : 'opacity-100'
               }`}
               alt={`Live feed from Camera ${index}`}
@@ -562,17 +564,14 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         {/* Floating Fullscreen Action Bar (Top Right of Video Canvas in Fullscreen) */}
         {isFullscreen && isStreaming && (
           <div
-            className="absolute top-4 right-4 z-40 flex items-center gap-2 bg-black/80 backdrop-blur-md px-3 py-1.5 rounded-2xl border border-white/20 shadow-2xl animate-in fade-in duration-150 select-none"
+            className="absolute top-4 right-4 z-40 flex items-center gap-2 bg-[var(--hud-bg)] backdrop-blur-md px-3 py-1.5 rounded-2xl border border-[var(--border-color)] shadow-xl animate-in fade-in duration-150 select-none text-[var(--text-primary)]"
             onMouseDown={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center gap-2 pr-2 border-r border-white/20">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-xs font-bold text-white tracking-wide">
+            <div className="flex items-center gap-2 pr-2 border-r border-[var(--border-color)]">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs font-bold text-[var(--text-primary)] tracking-wide">
                 {camera.sourceName || `Camera ${index}`}
-              </span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-white/10 text-white/90">
-                {camera.targetFps || camera.fps || 30} FPS
               </span>
             </div>
 
@@ -581,7 +580,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               type="button"
               onClick={handleSnapshotClick}
               title="Take instant snapshot"
-              className="p-1.5 rounded-xl hover:bg-white/20 text-white/90 hover:text-white transition-colors cursor-pointer"
+              className="p-1.5 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] border border-[var(--btn-secondary-border)] transition-all cursor-pointer shadow-xs active:scale-95"
             >
               <Camera className="w-4 h-4" />
             </button>
@@ -596,10 +595,10 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                 setIsTuningOpen((prev) => !prev);
               }}
               title={isTuningOpen ? 'Close camera tuning' : 'Adjust exposure, gain, focus & tone in fullscreen'}
-              className={`p-1.5 rounded-xl transition-colors cursor-pointer ${
+              className={`p-1.5 rounded-xl border transition-all cursor-pointer shadow-xs active:scale-95 ${
                 isTuningOpen
-                  ? 'bg-cyan-500 text-white shadow-xs'
-                  : 'hover:bg-white/20 text-white/90 hover:text-white'
+                  ? 'bg-[var(--accent-pond)] text-white border-[var(--accent-pond)]'
+                  : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] border-[var(--btn-secondary-border)]'
               }`}
             >
               <SlidersHorizontal className="w-4 h-4" />
@@ -610,7 +609,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               type="button"
               onClick={toggleFullscreen}
               title="Exit Fullscreen (Esc)"
-              className="p-1.5 rounded-xl bg-white/10 hover:bg-rose-600 text-white transition-colors cursor-pointer ml-1"
+              className="p-1.5 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-rose-600 hover:text-white hover:border-rose-600 text-[var(--text-secondary)] border border-[var(--btn-secondary-border)] transition-all cursor-pointer ml-1 shadow-xs active:scale-95"
             >
               <Minimize2 className="w-4 h-4" />
             </button>
