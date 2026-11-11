@@ -527,7 +527,7 @@ class OakCameraService:
             try:
                 exposure = int(config.exposure if config.exposure is not None else 8)
                 exposure = exposure * 1000 if exposure <= 1000 else exposure
-                gain = max(100, min(1600, int(config.gain if config.gain is not None else 400)))
+                gain = max(65, min(16585, int(config.gain if config.gain is not None else 400)))
                 focus = int(config.focus) if (config.focus is not None and int(config.focus) > 0) else 128
                 if control_mode == "auto" and exposure == 16000 and gain == 400 and focus == 120:
                     exposure, focus = 8000, 128
