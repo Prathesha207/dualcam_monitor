@@ -629,6 +629,7 @@ export default function App() {
                     isRecording={Boolean(recordingStates[camId]?.isRecording)}
                     recordingDuration={recordingStates[camId]?.duration || 0}
                     isExpanded={expandedCameraId === camId}
+                    canExpand={cameras.length > 1}
                     connectionError={connectionErrors[camId] || null}
                     onStartStream={handleStartStream}
                     onStopStream={handleStopStream}

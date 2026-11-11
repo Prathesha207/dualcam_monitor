@@ -33,6 +33,7 @@ interface CameraCardProps {
   isRecording: boolean;
   recordingDuration?: number;
   isExpanded?: boolean;
+  canExpand?: boolean;
   isControlsOpen?: boolean;
   connectionError?: string | null;
   onStartStream: (id: number) => void;
@@ -54,6 +55,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
   isRecording,
   recordingDuration = 0,
   isExpanded = false,
+  canExpand = true,
   isControlsOpen = false,
   connectionError = null,
   onStartStream,
@@ -744,14 +746,16 @@ export const CameraCard: React.FC<CameraCardProps> = ({
             <Camera className="w-3.5 h-3.5" />
           </button>
 
-          {/* 1. Expand within Dashboard Grid (Dual <-> Single Card) */}
-          <button
-            onClick={() => onExpandToggle(cameraId)}
-            title={isExpanded ? 'Minimize back to dual view' : 'Expand this camera in dashboard'}
-            className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--text-primary)] transition-all cursor-pointer active:scale-95 shadow-xs"
-          >
-            {isExpanded ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
-          </button>
+          {/* 1. Expand within Dashboard Grid (Dual <-> Single Card) - Only active when 2 or more cameras exist */}
+          {canExpand && (
+            <button
+              onClick={() => onExpandToggle(cameraId)}
+              title={isExpanded ? 'Minimize back to dual view' : 'Expand this camera in dashboard'}
+              className="flex items-center justify-center w-8 h-8 rounded-xl bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] border border-[var(--btn-secondary-border)] text-[var(--text-primary)] transition-all cursor-pointer active:scale-95 shadow-xs"
+            >
+              {isExpanded ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
+            </button>
+          )}
 
           {/* 2. Fullscreen Button (Physical Monitor Fullscreen) */}
           <button
