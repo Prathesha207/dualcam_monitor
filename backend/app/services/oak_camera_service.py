@@ -964,7 +964,7 @@ class OakCameraService:
                 # so the live preview in the browser has 100% true parity with the MP4 recording
                 if b != 0:
                     try:
-                        ret, buf = cv2.imencode(".jpg", display_bgr, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                        ret, buf = cv2.imencode(".jpg", display_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
                         if ret:
                             jpeg_bytes = buf.tobytes()
                             self._latest_jpeg = jpeg_bytes

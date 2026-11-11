@@ -325,13 +325,23 @@ class RecordingSession:
                     if not self._container or not self._stream:
                         continue
 
-                    # frame_queue contains raw JPEG bytes (same as browser stream).
-                    # AVI: write as raw MJPEG packets (zero re-encoding, lossless from camera).
-                    # MP4/FFV1: decode JPEG->BGR->encode (unavoidable, but source is
-                    #           browser-accurate JPEG so colors match the live stream).
-                    jpeg_data = data
+                    # Frame PTS relative to the start of this specific clip (each clip starts from 0)
+                    rel_pts = pts_ms - self._current_clip_start_pts_ms
+                    if rel_pts <= self._last_encoded_pts:
+                        rel_pts = self._last_encoded_pts + 1
+                    self._last_encoded_pts = rel_pts
+
+                    # Ensure we have JPEG bytes (from camera MJPEG or converted)
+                    if isinstance(data, bytes):
+                        jpeg_data = data
+                    else:
+                        ret, buf = cv2.imencode(".jpg", data, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                        jpeg_data = buf.tobytes() if ret else None
+                    if not jpeg_data:
+                        continue
+
                     if self._is_direct_mjpeg:
-                        # --- AVI: direct raw packet mux, no encoder ---
+                        # --- AVI: direct raw packet mux, no encoder (zero quality loss) ---
                         pkt = av.Packet(jpeg_data)
                         pkt.pts = rel_pts
                         pkt.dts = rel_pts
@@ -345,6 +355,7 @@ class RecordingSession:
                         self._total_frames += 1
                         self._current_clip_frames += 1
                         continue
+
                     # --- MP4/FFV1: decode JPEG, then encode ---
                     jpg_arr = np.frombuffer(jpeg_data, dtype=np.uint8)
                     bgr = cv2.imdecode(jpg_arr, cv2.IMREAD_COLOR)
@@ -353,12 +364,6 @@ class RecordingSession:
                     frame = av.VideoFrame.from_ndarray(bgr, format="bgr24")
                     if frame.format.name != self._stream.pix_fmt:
                         frame = frame.reformat(format=self._stream.pix_fmt)
-
-                    # Frame PTS relative to the start of this specific clip (each clip starts from 0)
-                    rel_pts = pts_ms - self._current_clip_start_pts_ms
-                    if rel_pts <= self._last_encoded_pts:
-                        rel_pts = self._last_encoded_pts + 1
-                    self._last_encoded_pts = rel_pts
                     frame.pts = rel_pts
 
                     for pkt in self._stream.encode(frame):
