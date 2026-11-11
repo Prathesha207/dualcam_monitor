@@ -6,6 +6,7 @@ and unique session folder naming to guarantee zero overwrites.
 """
 
 import av
+from av.video.reformatter import VideoReformatter, ColorRange, Colorspace
 import os
 import queue
 import threading
@@ -15,6 +16,9 @@ import json
 from datetime import datetime
 from app.core.app_paths import get_desktop_dir
 from app.services.camera_service import safe_camera_name
+
+# Shared full-range BGR→YUV reformatter (thread-safe; re-used across all sessions)
+_FULL_RANGE_REFORMATTER = VideoReformatter()
 
 logger = logging.getLogger("recording-service")
 
@@ -191,6 +195,16 @@ class RecordingSession:
             self._stream.pix_fmt = self.pix_fmt
             if self.codec_options:
                 self._stream.options = self.codec_options
+            # Tag the stream as full-range (JPEG/PC range) so media players
+            # render the same contrast and black levels as the browser live stream.
+            # Without this, players default to TV limited range (16–235) and crush
+            # blacks up to grey and clip highlights — making the recording look
+            # washed-out compared to what you see on screen.
+            try:
+                self._stream.codec_context.color_range = ColorRange.JPEG      # 0–255 full range
+                self._stream.codec_context.colorspace = Colorspace.ITU709
+            except Exception:
+                pass
             logger.info(f"[RECORD] Opened clip {self._current_clip_index} at {self._temp_clip_path}")
         except Exception as e:
             logger.warning(f"[RECORD] Failed to open clip container with {self.codec_name}: {e}. Retrying with libx264...")
@@ -205,6 +219,12 @@ class RecordingSession:
                     self._stream.pix_fmt = self.pix_fmt
                     if self.codec_options:
                         self._stream.options = self.codec_options
+                    # Tag full-range on fallback stream too
+                    try:
+                        self._stream.codec_context.color_range = ColorRange.JPEG
+                        self._stream.codec_context.colorspace = Colorspace.ITU709
+                    except Exception:
+                        pass
                     logger.info(f"[RECORD] Fallback succeeded: opened clip {self._current_clip_index} with libx264")
                 except Exception as ex2:
                     logger.error(f"[RECORD] Fallback clip container failed: {ex2}", exc_info=True)
@@ -320,10 +340,22 @@ class RecordingSession:
                     if not self._container or not self._stream:
                         continue
 
-                    # BGR -> Target Pixel Format
+                    # BGR -> Target Pixel Format with full color range preservation.
+                    # Using JPEG (full PC range 0-255) on both src and dst sides of
+                    # swscale prevents the default TV limited-range crush (16-235)
+                    # that makes blacks look grey and whites look dim in the recording
+                    # compared to the browser live stream.
                     frame = av.VideoFrame.from_ndarray(bgr, format="bgr24")
                     if frame.format.name != self._stream.pix_fmt:
-                        frame = frame.reformat(format=self._stream.pix_fmt)
+                        frame = _FULL_RANGE_REFORMATTER.reformat(
+                            frame,
+                            format=self._stream.pix_fmt,
+                            src_color_range="JPEG",
+                            dst_color_range="JPEG",
+                            src_colorspace="ITU709",
+                            dst_colorspace="ITU709",
+                        )
+                    frame.color_range = ColorRange.JPEG
 
                     # Frame PTS relative to the start of this specific clip (each clip starts from 0)
                     rel_pts = pts_ms - self._current_clip_start_pts_ms
