@@ -171,6 +171,7 @@ class OakCameraService:
             "lens_position": None,
             "timestamp": None,
         }
+        self._discovered_limits: Any = None
 
         # ---- Recording ----
         self._active_recording = None
@@ -1172,19 +1173,30 @@ class OakCameraService:
             self.control_mode = "manual"
 
         # 1. Update internal state first (Zone 1 Physical Hardware Clamping)
+        lim = getattr(self, "_discovered_limits", None)
+        gain_min = int(lim.gain.min) if lim else 65
+        gain_max = int(lim.gain.max) if lim else 16585
+        focus_min = int(lim.focus.min) if (lim and lim.focus) else 0
+        focus_max = int(lim.focus.max) if (lim and lim.focus) else 255
+        has_af = (lim.focus is not None) if lim else True
+        exp_min = int(lim.exposure_us.min) if lim else 86
+        exp_max = int(lim.exposure_us.max) if lim else 1_000_000
+
         if brightness is not None:
             self.current_brightness = max(-50, min(50, int(brightness)))
         if contrast is not None:
             self.current_contrast = max(-10, min(10, int(contrast)))
         if gain is not None:
-            self.current_gain = max(65, min(16585, int(gain)))
-        if focus is not None:
-            self.current_focus = max(0, min(255, int(focus)))
+            self.current_gain = max(gain_min, min(gain_max, int(gain)))
+        if focus is not None and has_af:
+            self.current_focus = max(focus_min, min(focus_max, int(focus)))
             self.focus_available = True
+        elif not has_af:
+            self.focus_available = False
         if exposure is not None:
             val = float(exposure)
             exp_us = int(val * 1000) if val <= 1000 else int(val)
-            self.current_exposure_us = max(86, min(1_000_000, exp_us))
+            self.current_exposure_us = max(exp_min, min(exp_max, exp_us))
 
         self.auto_exposure_enabled = self.auto_focus_enabled = False
         self._monitor_baseline_sharpness = None
@@ -1699,6 +1711,24 @@ class OakCameraService:
                     self._legacy_preset_migration = False
 
                 self._enforce_fixed_controls()
+
+                # Trigger dynamic hardware limits discovery in background
+                try:
+                    from app.services.camera_limits_service import discover_limits_for_service
+
+                    def _run_limits_probe():
+                        try:
+                            self._discovered_limits = discover_limits_for_service(self)
+                        except Exception as probe_err:
+                            logger.debug(f"[LIMITS] Background discovery error: {probe_err}")
+
+                    threading.Thread(
+                        target=_run_limits_probe,
+                        daemon=True,
+                        name=f"limits-probe-cam-{self._active_camera_id or 1}",
+                    ).start()
+                except Exception as sched_err:
+                    logger.debug(f"[LIMITS] Could not schedule limits discovery: {sched_err}")
 
                 logger.info("[START] Pipeline ready — waiting for stream/start")
                 realtime_log_service.add_log(

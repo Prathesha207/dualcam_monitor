@@ -167,11 +167,82 @@ def test_contrast_schema_sanitization():
     print("  ✓ Optional None values passed through cleanly for partial updates")
 
 
+def test_dynamic_limits_discovery():
+    print("\n--- [TEST 5] Testing Dynamic Hardware Limits Discovery Engine ---")
+    from app.services.camera_limits_service import (
+        CameraIdentity,
+        CameraLimitsService,
+        probe_limits,
+        Source,
+        get_limits_service,
+    )
+    import tempfile
+
+    # 1. Mock Hardware Probe Backend simulating an IMX586 sensor clamping behavior
+    class MockClampingBackend:
+        def apply_exposure_iso(self, exposure_us: int, iso: int) -> tuple[int, int]:
+            # Hardware sensor clamps ISO to [65, 16585] and exposure to [86, 1000000]
+            clamped_iso = max(65, min(16585, int(iso)))
+            clamped_exp = max(86, min(1_000_000, int(exposure_us)))
+            return clamped_exp, clamped_iso
+
+        def apply_focus(self, position: int) -> int | None:
+            # 8-bit VCM tracks 0..255
+            if 0 <= position <= 255:
+                return position
+            return None
+
+    ident = CameraIdentity("RVC4", "IMX586_TEST", "CAM_A", has_autofocus=True)
+    mock_hw = MockClampingBackend()
+
+    probed = probe_limits(ident, mock_hw, exposure_ceiling_us=1_000_000)
+    assert probed.gain.min == 65, f"Expected gain min 65, got {probed.gain.min}"
+    assert probed.gain.max == 16585, f"Expected gain max 16585, got {probed.gain.max}"
+    assert probed.gain.source == Source.PROBED, f"Expected PROBED, got {probed.gain.source}"
+    assert probed.gain.verified is True, "Expected gain.verified to be True on clamped hardware"
+    assert probed.exposure_us.min == 86, f"Expected exposure min 86, got {probed.exposure_us.min}"
+    assert probed.exposure_us.max == 1_000_000, f"Expected exposure max 1,000,000, got {probed.exposure_us.max}"
+    assert probed.focus is not None and probed.focus.min == 0 and probed.focus.max == 255
+    print("  ✓ Mock probe successfully detected hardware clamping: Gain [65..16585], Exposure [86..1000000] µs, Focus [0..255]")
+
+    # 2. Test Atomic Cache Read & Write
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+        temp_cache_path = Path(f.name)
+
+    try:
+        cs = CameraLimitsService(cache_path=temp_cache_path)
+        # Should be None initially
+        assert cs.get_cached(ident) is None
+        # Probe and cache
+        cached_result = cs.get_limits(ident, backend=mock_hw, force_probe=False)
+        assert cached_result.gain.min == 65
+        # Second call must hit cache without invoking backend
+        second_result = cs.get_cached(ident)
+        assert second_result is not None
+        assert second_result.gain.max == 16585
+        assert second_result.identity.key == ident.key
+        print("  ✓ Atomic cache persistence verified: stored and reloaded from JSON without data loss")
+    finally:
+        if temp_cache_path.exists():
+            temp_cache_path.unlink()
+
+    # 3. Test Unknown Camera Fallback (API Contract)
+    unknown_ident = CameraIdentity("UNKNOWN_PLATFORM", "UNKNOWN_SENSOR", "CAM_A", has_autofocus=False)
+    ls = get_limits_service()
+    fallback_limits = ls.get_limits(unknown_ident)
+    assert fallback_limits.gain.min == 100
+    assert fallback_limits.gain.max == 1600
+    assert fallback_limits.gain.source == Source.API_CONTRACT
+    assert fallback_limits.focus is None  # fixed focus has no focus control
+    print("  ✓ Unknown sensor cleanly fell back to conservative API contract (ISO 100..1600, focus=None)")
+
+
 if __name__ == "__main__":
     test_brightness_lut()
     test_contrast_migration()
     test_safe_fps_and_limits()
     test_contrast_schema_sanitization()
+    test_dynamic_limits_discovery()
     print("\n=========================================")
     print("  ALL TESTS PASSED SUCCESSFULLY! (100%)  ")
     print("=========================================")

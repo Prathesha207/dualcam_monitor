@@ -112,7 +112,7 @@ def get_camera_limits_endpoint(camera_id: int, db: Session = Depends(get_db)):
         inst = oak_camera_service.get_instance(camera_id)
         if inst and getattr(inst, "_configured_fps", 0) > 0:
             fps = inst._configured_fps
-        return compute_camera_control_limits(camera_id=camera_id, configured_fps=fps, resolution=resolution)
+        return compute_camera_control_limits(camera_id=camera_id, configured_fps=fps, resolution=resolution, camera_instance=inst)
     except Exception as e:
         logger.error(f"[API ERROR] GET /camera/limits/{camera_id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to compute limits: {e}")
