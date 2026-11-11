@@ -6,8 +6,7 @@ and unique session folder naming to guarantee zero overwrites.
 """
 
 import av
-import cv2
-import numpy as np
+from av.video.reformatter import VideoReformatter, ColorRange, Colorspace, ColorPrimaries, ColorTrc
 import os
 import queue
 import threading
@@ -20,10 +19,13 @@ from app.services.camera_service import safe_camera_name
 
 logger = logging.getLogger("recording-service")
 
-# session_id → RecordingSession
+# session_id -> RecordingSession
 active_recordings: dict = {}
 
 _NVENC_FUNCTIONAL: bool | None = None
+
+# Thread-safe reformatter for high-fidelity color range preservation
+_FULL_RANGE_REFORMATTER = VideoReformatter()
 
 
 def _is_nvenc_functional() -> bool:
@@ -59,7 +61,7 @@ class RecordingSession:
         session_id: str,
         width: int,
         height: int,
-        fps: float = 30.0,           # kept for API compatibility; not used for timestamps
+        fps: float = 30.0,
         root_path: str = None,
         recording_format: str = "MP4",
         camera_settings: dict | None = None,
@@ -77,14 +79,12 @@ class RecordingSession:
         try:
             os.makedirs(parent_dir, exist_ok=True)
         except Exception as perm_err:
-            # Fallback to local workspace recordings directory
             ws_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             fallback_root = os.path.join(ws_root, "recordings")
             logger.warning(f"[RECORD] Cannot create {parent_dir}: {perm_err} — falling back to {fallback_root}")
             parent_dir = os.path.join(fallback_root, safe_cam, date_folder)
             os.makedirs(parent_dir, exist_ok=True)
 
-        # Unique session folder to prevent any overwriting
         session_base = f"session_{now.strftime('%H-%M-%S')}"
         session_dir = os.path.join(parent_dir, session_base)
         counter = 1
@@ -108,7 +108,7 @@ class RecordingSession:
             codec_name = "mjpeg"
             pix_fmt    = "yuvj420p"
             ext        = ".avi"
-            options    = {}  # AVI MJPEG: raw JPEG packets written directly (no encoder config needed)
+            options    = {"qmin": "1", "qmax": "2"}
         elif fmt in ("FFV1", "MKV"):
             fmt        = "FFV1"
             codec_name = "ffv1"
@@ -121,10 +121,10 @@ class RecordingSession:
             ext        = ".mp4"
             if _is_nvenc_functional():
                 codec_name = "h264_nvenc"
-                options    = {"preset": "fast", "cq": "20"}
+                options    = {"preset": "fast", "cq": "18"}
             else:
                 codec_name = "libx264"
-                options    = {"preset": "ultrafast", "crf": "22", "tune": "zerolatency"}
+                options    = {"preset": "fast", "crf": "17", "tune": "zerolatency"}
 
         self.fmt = fmt
         self.codec_name = codec_name
@@ -134,13 +134,12 @@ class RecordingSession:
         self.width = width
         self.height = height
 
-        # Frame queue (bounded ~150 frames to prevent OOM)
+        # Frame queue for uncompressed BGR frames
         self.frame_queue = queue.Queue(maxsize=150)
         self.is_running  = False
         self._start_mono = time.monotonic()
         self._total_frames = 0
-        self._last_jpeg: bytes | None = None   # last JPEG bytes for stream padding
-        self._is_direct_mjpeg = (fmt == "AVI")  # True = write raw JPEG packets, False = encode
+        self._last_bgr = None
         self._last_pts_ms = -1
 
         self.clips: list = []
@@ -183,7 +182,6 @@ class RecordingSession:
 
         container_options = {}
         if self.fmt == "MP4":
-            # Fragmented MP4 ensures chunks are immediately playable even on unexpected stop/crash
             container_options = {"movflags": "frag_keyframe+empty_moov"}
 
         try:
@@ -194,12 +192,23 @@ class RecordingSession:
             self._stream.pix_fmt = self.pix_fmt
             if self.codec_options:
                 self._stream.options = self.codec_options
+
+            # Tag H.264 VUI metadata for pristine, accurate colors (no blue tint or washed out look)
+            if self.fmt == "MP4":
+                try:
+                    self._stream.codec_context.colorspace = Colorspace.ITU709
+                    self._stream.codec_context.color_primaries = ColorPrimaries.BT709
+                    self._stream.codec_context.color_trc = ColorTrc.BT709
+                    self._stream.codec_context.color_range = ColorRange.JPEG
+                except Exception:
+                    pass
+
             logger.info(f"[RECORD] Opened clip {self._current_clip_index} at {self._temp_clip_path}")
         except Exception as e:
             logger.warning(f"[RECORD] Failed to open clip container with {self.codec_name}: {e}. Retrying with libx264...")
             if self.codec_name != "libx264":
                 self.codec_name = "libx264"
-                self.codec_options = {"preset": "ultrafast", "crf": "22", "tune": "zerolatency"}
+                self.codec_options = {"preset": "fast", "crf": "17", "tune": "zerolatency"}
                 try:
                     self._container = av.open(self._temp_clip_path, mode="w", options=container_options)
                     self._stream = self._container.add_stream(self.codec_name, rate=1000)
@@ -208,6 +217,13 @@ class RecordingSession:
                     self._stream.pix_fmt = self.pix_fmt
                     if self.codec_options:
                         self._stream.options = self.codec_options
+                    try:
+                        self._stream.codec_context.colorspace = Colorspace.ITU709
+                        self._stream.codec_context.color_primaries = ColorPrimaries.BT709
+                        self._stream.codec_context.color_trc = ColorTrc.BT709
+                        self._stream.codec_context.color_range = ColorRange.JPEG
+                    except Exception:
+                        pass
                     logger.info(f"[RECORD] Fallback succeeded: opened clip {self._current_clip_index} with libx264")
                 except Exception as ex2:
                     logger.error(f"[RECORD] Fallback clip container failed: {ex2}", exc_info=True)
@@ -222,16 +238,14 @@ class RecordingSession:
             return
 
         try:
-            if not self._is_direct_mjpeg:
-                # Flush the encoder (not needed for direct MJPEG packet mux)
-                for pkt in self._stream.encode():
-                    if pkt.dts is not None:
-                        if pkt.dts <= self._last_mux_dts:
-                            pkt.dts = self._last_mux_dts + 1
-                        self._last_mux_dts = pkt.dts
-                    if pkt.pts is not None and pkt.dts is not None and pkt.pts < pkt.dts:
-                        pkt.pts = pkt.dts
-                    self._container.mux(pkt)
+            for pkt in self._stream.encode():
+                if pkt.dts is not None:
+                    if pkt.dts <= self._last_mux_dts:
+                        pkt.dts = self._last_mux_dts + 1
+                    self._last_mux_dts = pkt.dts
+                if pkt.pts is not None and pkt.dts is not None and pkt.pts < pkt.dts:
+                    pkt.pts = pkt.dts
+                self._container.mux(pkt)
             self._container.close()
         except Exception as e:
             logger.warning(f"[RECORD] Error closing container for clip {self._current_clip_index}: {e}")
@@ -311,7 +325,7 @@ class RecordingSession:
         try:
             while self.is_running or not self.frame_queue.empty():
                 try:
-                    data, pts_ms = self.frame_queue.get(timeout=0.5)
+                    bgr, pts_ms = self.frame_queue.get(timeout=0.5)
                 except queue.Empty:
                     continue
 
@@ -331,39 +345,23 @@ class RecordingSession:
                         rel_pts = self._last_encoded_pts + 1
                     self._last_encoded_pts = rel_pts
 
-                    # Ensure we have JPEG bytes (from camera MJPEG or converted)
-                    if isinstance(data, bytes):
-                        jpeg_data = data
-                    else:
-                        ret, buf = cv2.imencode(".jpg", data, [cv2.IMWRITE_JPEG_QUALITY, 95])
-                        jpeg_data = buf.tobytes() if ret else None
-                    if not jpeg_data:
-                        continue
-
-                    if self._is_direct_mjpeg:
-                        # --- AVI: direct raw packet mux, no encoder (zero quality loss) ---
-                        pkt = av.Packet(jpeg_data)
-                        pkt.pts = rel_pts
-                        pkt.dts = rel_pts
-                        pkt.stream = self._stream
-                        if pkt.dts is not None and pkt.dts <= self._last_mux_dts:
-                            pkt.dts = self._last_mux_dts + 1
-                            pkt.pts = pkt.dts
-                        if pkt.dts is not None:
-                            self._last_mux_dts = pkt.dts
-                        self._container.mux(pkt)
-                        self._total_frames += 1
-                        self._current_clip_frames += 1
-                        continue
-
-                    # --- MP4/FFV1: decode JPEG, then encode ---
-                    jpg_arr = np.frombuffer(jpeg_data, dtype=np.uint8)
-                    bgr = cv2.imdecode(jpg_arr, cv2.IMREAD_COLOR)
-                    if bgr is None:
-                        continue
+                    # Create video frame directly from uncompressed BGR (zero double-compression)
                     frame = av.VideoFrame.from_ndarray(bgr, format="bgr24")
-                    if frame.format.name != self._stream.pix_fmt:
+
+                    if self.fmt == "MP4":
+                        # Full-range BT.709 conversion (preserves 0-255 dynamic range, zero wash-out)
+                        frame = _FULL_RANGE_REFORMATTER.reformat(
+                            frame,
+                            format=self._stream.pix_fmt,
+                            src_color_range="JPEG",
+                            dst_color_range="JPEG",
+                            src_colorspace="ITU709",
+                            dst_colorspace="ITU709",
+                        )
+                        frame.color_range = ColorRange.JPEG
+                    elif frame.format.name != self._stream.pix_fmt:
                         frame = frame.reformat(format=self._stream.pix_fmt)
+
                     frame.pts = rel_pts
 
                     for pkt in self._stream.encode(frame):
@@ -389,7 +387,6 @@ class RecordingSession:
                 self._close_clip(end_pts)
                 self._write_session_json(status="interrupted_error")
         finally:
-            # Finalize open container (captures remaining balance minutes cleanly)
             if self._container:
                 end_pts = self._last_pts_ms if self._last_pts_ms > self._current_clip_start_pts_ms else int((time.monotonic() - self._start_mono) * 1000)
                 self._close_clip(end_pts)
@@ -398,12 +395,8 @@ class RecordingSession:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    def add_jpeg_frame(self, jpeg_bytes: bytes) -> None:
-        """Add a JPEG frame (from camera MJPEG stream) directly to the recording.
-
-        For AVI format: bytes are stored as raw MJPEG packets with zero re-encoding.
-        For MP4/FFV1: bytes are decoded and re-encoded in the worker thread.
-        """
+    def add_frame(self, bgr):
+        """Add uncompressed BGR frame directly to the recording queue."""
         if not self.is_running:
             return
 
@@ -411,28 +404,28 @@ class RecordingSession:
         if pts_ms <= self._last_pts_ms:
             pts_ms = self._last_pts_ms + 1
         self._last_pts_ms = pts_ms
-        self._last_jpeg = jpeg_bytes
+        self._last_bgr = bgr
 
         try:
-            self.frame_queue.put_nowait((jpeg_bytes, pts_ms))
+            self.frame_queue.put_nowait((bgr, pts_ms))
         except queue.Full:
             try:
                 self.frame_queue.get_nowait()
-                self.frame_queue.put_nowait((jpeg_bytes, pts_ms))
+                self.frame_queue.put_nowait((bgr, pts_ms))
             except Exception:
                 pass
 
-    def add_frame(self, bgr) -> None:
-        """Legacy BGR frame add — encodes to JPEG then routes through add_jpeg_frame.
-
-        Kept for backward compatibility. Direct callers should prefer add_jpeg_frame.
-        """
+    def add_jpeg_frame(self, jpeg_bytes: bytes) -> None:
+        """Compatibility shim — decodes JPEG if a caller passes JPEG bytes."""
+        import cv2
+        import numpy as np
         if not self.is_running:
             return
         try:
-            ret, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
-            if ret:
-                self.add_jpeg_frame(buf.tobytes())
+            arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
+            bgr = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            if bgr is not None:
+                self.add_frame(bgr)
         except Exception:
             pass
 
@@ -445,7 +438,7 @@ class RecordingSession:
         self.settings_history.append(event)
 
     def stop(self) -> dict:
-        if self._last_jpeg is not None:
+        if self._last_bgr is not None:
             pad_pts_ms = int((time.monotonic() - self._start_mono) * 1000)
             if pad_pts_ms <= self._last_pts_ms:
                 pad_pts_ms = self._last_pts_ms + 1
@@ -453,7 +446,7 @@ class RecordingSession:
             self._last_pts_ms = pad_pts_ms
             logger.info(f"[RECORD] Padding final clip by {gap_ms} ms")
             try:
-                self.frame_queue.put_nowait((self._last_jpeg, pad_pts_ms))
+                self.frame_queue.put_nowait((self._last_bgr, pad_pts_ms))
             except queue.Full:
                 pass
 

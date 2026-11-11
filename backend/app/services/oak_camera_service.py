@@ -800,11 +800,6 @@ class OakCameraService:
                     self._latest_jpeg = jpeg
                     frames += 1
 
-                    # Feed recording directly from MJPEG stream — same exact bytes
-                    # as the browser, zero re-encoding, correct colors guaranteed.
-                    if self._active_recording is not None:
-                        self._active_recording.add_jpeg_frame(jpeg)
-
                     loop = self._server_loop
                     if loop is not None and not loop.is_closed():
                         loop.call_soon_threadsafe(self._push_sync, jpeg)
@@ -968,10 +963,6 @@ class OakCameraService:
                         if ret:
                             jpeg_bytes = buf.tobytes()
                             self._latest_jpeg = jpeg_bytes
-                            # Feed recording with the LUT-adjusted JPEG — same as browser
-                            if self._active_recording is not None:
-                                self._active_recording.add_jpeg_frame(jpeg_bytes)
-                                record_frames += 1
                             loop = self._server_loop
                             if loop is not None and not loop.is_closed():
                                 loop.call_soon_threadsafe(self._push_sync, jpeg_bytes)
@@ -979,6 +970,11 @@ class OakCameraService:
                                 self._push_sync(jpeg_bytes)
                     except Exception as enc_err:
                         logger.debug(f"[CONVERT] Brightness stream encode failed: {enc_err}")
+
+                # Feed uncompressed BGR frame directly to recording (no intermediate JPEG artifacts)
+                if self._active_recording is not None:
+                    self._active_recording.add_frame(display_bgr)
+                    record_frames += 1
 
                 frames += 1
                 now = time.time()
