@@ -70,10 +70,24 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    const serverDetail =
+    let serverDetail =
       error.response?.data?.detail ||
       error.response?.data?.message ||
       (typeof error.response?.data === 'string' ? error.response?.data : null);
+
+    if (Array.isArray(serverDetail)) {
+      serverDetail = serverDetail
+        .map((d: any) => {
+          if (typeof d === 'string') return d;
+          const loc = Array.isArray(d.loc)
+            ? d.loc.filter((x: any) => x !== 'body').join('.')
+            : d.field || '';
+          return loc ? `${loc}: ${d.msg || d.message}` : (d.msg || d.message || JSON.stringify(d));
+        })
+        .join('; ');
+    } else if (serverDetail && typeof serverDetail === 'object') {
+      serverDetail = JSON.stringify(serverDetail);
+    }
 
     if (serverDetail && typeof serverDetail === 'string') {
       error.message = serverDetail;

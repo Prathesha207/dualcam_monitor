@@ -601,7 +601,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                   : 'bg-[var(--btn-secondary-bg)] hover:bg-[var(--btn-secondary-hover)] text-[var(--text-primary)] border-[var(--btn-secondary-border)]'
               }`}
             >
-              <SlidersHorizontal className="w-4 h-4" />
+              <Settings className="w-4 h-4" />
             </button>
 
             {/* Exit Fullscreen Button */}

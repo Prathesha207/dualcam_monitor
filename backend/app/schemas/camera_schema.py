@@ -14,6 +14,14 @@ class CameraBase(BaseModel):
     # Mode
     control_mode: Literal["auto", "manual"] = "auto"
 
+    @field_validator("control_mode", mode="before")
+    @classmethod
+    def sanitize_control_mode(cls, v):
+        if not v:
+            return "auto"
+        s = str(v).strip().lower()
+        return "manual" if s == "manual" else "auto"
+
     # Manual Controls
     exposure: Optional[float] = Field(default=None, ge=0, le=1000)
     gain: Optional[float] = Field(default=None, ge=0, le=16585)
@@ -22,18 +30,86 @@ class CameraBase(BaseModel):
     brightness: Optional[int] = Field(default=0, ge=-50, le=50)
     contrast: Optional[int] = Field(default=0, ge=-10, le=10)
 
+    @field_validator("exposure", mode="before")
+    @classmethod
+    def sanitize_exposure(cls, v):
+        if v is None:
+            return None
+        try:
+            val = float(v)
+            if val > 1000.0:  # Microseconds passed instead of milliseconds
+                val = val / 1000.0
+            return max(0.0, min(1000.0, val))
+        except (ValueError, TypeError):
+            return None
+
+    @field_validator("gain", mode="before")
+    @classmethod
+    def sanitize_gain(cls, v):
+        if v is None:
+            return None
+        try:
+            val = float(v)
+            return max(0.0, min(16585.0, val))
+        except (ValueError, TypeError):
+            return None
+
+    @field_validator("focus", mode="before")
+    @classmethod
+    def sanitize_focus(cls, v):
+        if v is None:
+            return None
+        try:
+            val = int(round(float(v)))
+            return max(0, min(255, val))
+        except (ValueError, TypeError):
+            return None
+
+    @field_validator("brightness", mode="before")
+    @classmethod
+    def sanitize_brightness(cls, v):
+        if v is None:
+            return 0
+        try:
+            val = int(round(float(v)))
+            return max(-50, min(50, val))
+        except (ValueError, TypeError):
+            return 0
+
     @field_validator("contrast", mode="before")
     @classmethod
     def sanitize_contrast(cls, v):
         if v is None:
             return 0
         try:
-            val = int(v)
+            val = int(round(float(v)))
             if val > 10:  # Legacy 0..100 scale (where 50 was neutral)
                 return max(-10, min(10, int(round((val - 50.0) / 5.0))))
             return max(-10, min(10, val))
         except (ValueError, TypeError):
             return 0
+
+    @field_validator("fps", mode="before")
+    @classmethod
+    def sanitize_fps(cls, v):
+        if v is None:
+            return 30
+        try:
+            val = int(round(float(v)))
+            return max(5, min(60, val))
+        except (ValueError, TypeError):
+            return 30
+
+    @field_validator("clip_duration_minutes", mode="before")
+    @classmethod
+    def sanitize_clip_duration(cls, v):
+        if v is None:
+            return 1
+        try:
+            val = int(round(float(v)))
+            return max(1, min(1440, val))
+        except (ValueError, TypeError):
+            return 1
 
     # Legacy status fields; camera autofocus and auto exposure are always off.
     auto_exposure: bool = False
@@ -60,6 +136,14 @@ class CameraUpdate(BaseModel):
 
     control_mode: Optional[Literal["auto", "manual"]] = None
 
+    @field_validator("control_mode", mode="before")
+    @classmethod
+    def sanitize_control_mode(cls, v):
+        if v is None:
+            return None
+        s = str(v).strip().lower()
+        return "manual" if s == "manual" else "auto"
+
     exposure: Optional[float] = Field(default=None, ge=0, le=1000)
     gain: Optional[float] = Field(default=None, ge=0, le=16585)
     focus: Optional[int] = Field(default=None, ge=0, le=255)
@@ -67,16 +151,84 @@ class CameraUpdate(BaseModel):
     brightness: Optional[int] = Field(default=None, ge=-50, le=50)
     contrast: Optional[int] = Field(default=None, ge=-10, le=10)
 
+    @field_validator("exposure", mode="before")
+    @classmethod
+    def sanitize_exposure(cls, v):
+        if v is None:
+            return None
+        try:
+            val = float(v)
+            if val > 1000.0:
+                val = val / 1000.0
+            return max(0.0, min(1000.0, val))
+        except (ValueError, TypeError):
+            return None
+
+    @field_validator("gain", mode="before")
+    @classmethod
+    def sanitize_gain(cls, v):
+        if v is None:
+            return None
+        try:
+            val = float(v)
+            return max(0.0, min(16585.0, val))
+        except (ValueError, TypeError):
+            return None
+
+    @field_validator("focus", mode="before")
+    @classmethod
+    def sanitize_focus(cls, v):
+        if v is None:
+            return None
+        try:
+            val = int(round(float(v)))
+            return max(0, min(255, val))
+        except (ValueError, TypeError):
+            return None
+
+    @field_validator("brightness", mode="before")
+    @classmethod
+    def sanitize_brightness(cls, v):
+        if v is None:
+            return None
+        try:
+            val = int(round(float(v)))
+            return max(-50, min(50, val))
+        except (ValueError, TypeError):
+            return None
+
     @field_validator("contrast", mode="before")
     @classmethod
     def sanitize_contrast(cls, v):
         if v is None:
             return None
         try:
-            val = int(v)
+            val = int(round(float(v)))
             if val > 10:  # Legacy 0..100 scale (where 50 was neutral)
                 return max(-10, min(10, int(round((val - 50.0) / 5.0))))
             return max(-10, min(10, val))
+        except (ValueError, TypeError):
+            return None
+
+    @field_validator("fps", mode="before")
+    @classmethod
+    def sanitize_fps(cls, v):
+        if v is None:
+            return None
+        try:
+            val = int(round(float(v)))
+            return max(5, min(60, val))
+        except (ValueError, TypeError):
+            return None
+
+    @field_validator("clip_duration_minutes", mode="before")
+    @classmethod
+    def sanitize_clip_duration(cls, v):
+        if v is None:
+            return None
+        try:
+            val = int(round(float(v)))
+            return max(1, min(1440, val))
         except (ValueError, TypeError):
             return None
 

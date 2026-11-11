@@ -332,22 +332,24 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
     setErrorMessage(null);
     setErrorCameraId(null);
     try {
+      const exp = Number(localConfig.exposure ?? 8);
+      const safeExp = exp > 1000 ? exp / 1000 : exp;
       const payload: CameraData = {
         name,
         ip_address: ipAddress,
         resolution: localConfig.resolution || '1920x1080',
-        fps: localConfig.targetFps || 30,
-        control_mode: localConfig.controlMode || 'auto',
-        exposure: localConfig.exposure ?? 8,
-        gain: localConfig.gain ?? localConfig.iso ?? 400,
-        focus: (localConfig.focus && localConfig.focus > 0) ? localConfig.focus : 128,
-        brightness: localConfig.brightness ?? 0,
+        fps: Math.max(5, Math.min(60, Math.round(Number(localConfig.targetFps || 30)))),
+        control_mode: localConfig.controlMode === 'manual' ? 'manual' : 'auto',
+        exposure: Math.max(0.1, Math.min(1000, Number(safeExp.toFixed(2)))),
+        gain: Math.max(0, Math.min(16585, Math.round(Number(localConfig.gain ?? localConfig.iso ?? 400)))),
+        focus: Math.max(0, Math.min(255, Math.round(Number(localConfig.focus && localConfig.focus > 0 ? localConfig.focus : 128)))),
+        brightness: Math.max(-50, Math.min(50, Math.round(Number(localConfig.brightness ?? 0)))),
         contrast: sanitizeContrast(localConfig.contrast),
         auto_focus: false,
         auto_exposure: false,
         recording_format: localConfig.recordingFormat || 'MP4',
         recording_video_path: storagePath || undefined,
-        clip_duration_minutes: localConfig.clipDurationMinutes || 1,
+        clip_duration_minutes: Math.max(1, Math.min(1440, Math.round(Number(localConfig.clipDurationMinutes || 1)))),
       };
       const saved = await cameraService.createCamera(payload);
       const updated: CameraConfig = {

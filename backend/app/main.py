@@ -9,7 +9,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import ResponseValidationError
+from fastapi.exceptions import ResponseValidationError, RequestValidationError
 from starlette.responses import Response, StreamingResponse
 
 from app.api.router import router
@@ -137,6 +137,44 @@ async def app_exception_handler(request: Request, exc: AppException):
     return JSONResponse(
         status_code=exc.status_code,
         content={"status": False, "message": exc.message, "detail": exc.message, "data": None, "request_id": req_id},
+        headers=_cors_headers(request),
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    req_id = getattr(request.state, "request_id", "req_unknown")
+    errors = exc.errors()
+    msg_parts = []
+    for err in errors:
+        loc = ".".join(str(x) for x in err.get("loc", []) if x != "body")
+        msg = err.get("msg", "Invalid value")
+        msg_parts.append(f"{loc}: {msg}" if loc else msg)
+    combined_msg = "; ".join(msg_parts) or "Request validation error"
+    logger.warning(
+        f"[REQUEST VALIDATION ERROR 422] [{req_id}] {request.method} {request.url.path}: {combined_msg}"
+    )
+    realtime_log_service.add_log(
+        "system",
+        "WARN",
+        f"Validation error on {request.method} {request.url.path}: {combined_msg}",
+        "warning"
+    )
+    return JSONResponse(
+        status_code=422,
+        content={
+            "status": False,
+            "message": combined_msg,
+            "detail": combined_msg,
+            "request_id": req_id,
+            "errors": [
+                {
+                    "field": ".".join(str(x) for x in err.get("loc", []) if x != "body"),
+                    "message": err.get("msg", "Invalid value"),
+                }
+                for err in errors
+            ]
+        },
         headers=_cors_headers(request),
     )
 

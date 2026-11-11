@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { SlidersHorizontal, RotateCcw, Focus, Sun, Zap, CheckCircle2, Save, X, Loader2, Minus, ChevronUp, AlertTriangle, Info } from 'lucide-react';
+import { Settings, SlidersHorizontal, RotateCcw, Focus, Sun, Zap, CheckCircle2, Save, X, Loader2, Minus, ChevronUp, AlertTriangle, Info } from 'lucide-react';
 import type { CameraConfig } from '../../types';
 import { cameraService } from '../service/cameraService';
 
@@ -402,10 +402,10 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           onClick={() => setIsMinimized(false)}
           title="Click to expand tuning panel"
         >
-          <SlidersHorizontal className="w-3.5 h-3.5 text-[var(--accent-pond)] shrink-0" />
+          <Settings className="w-3.5 h-3.5 text-[var(--accent-pond)] shrink-0" />
           <span className="text-[11px] font-bold">CAM {cameraIndex}</span>
           <span className="text-[10px] font-mono text-[var(--text-secondary)]">
-            ISO {gain} • {exposure}ms • {activeFps}FPS
+            ISO {gain} • {exposure}ms
           </span>
         </div>
         <button
@@ -443,13 +443,10 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
       {/* 1. Popover Header */}
       <div className="flex items-center justify-between pb-1 border-b border-[var(--border-color)]">
         <div className="flex items-center gap-1.5 min-w-0">
-          <SlidersHorizontal className="w-3.5 h-3.5 text-[var(--accent-pond)] shrink-0" />
+          <Settings className="w-3.5 h-3.5 text-[var(--accent-pond)] shrink-0" />
           <h3 className="font-bold text-xs text-[var(--text-primary)] truncate tracking-tight">
             {cameraName ? `${cameraName} Tuning` : `Camera 0${cameraIndex} Tuning`}
           </h3>
-          <span className="px-1 py-0.2 rounded text-[9px] font-mono font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30 shrink-0">
-            {activeFps} FPS
-          </span>
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
