@@ -154,7 +154,7 @@ export const cameraService = {
 
   async getCameraLimits(id: string | number) {
     try {
-      const res = await api.get(`/camera/limits/${id}`);
+      const res = await api.get(`/camera/${id}/limits`);
       return res.data;
     } catch (err) {
       console.warn(`[cameraService] getCameraLimits failed for ${id}:`, err);

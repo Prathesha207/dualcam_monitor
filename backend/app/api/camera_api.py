@@ -102,7 +102,6 @@ def get_cameras(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Internal error fetching cameras: {e}")
 
 
-@router.get("/limits/{camera_id}")
 @router.get("/{camera_id}/limits")
 def get_camera_limits_endpoint(camera_id: int, db: Session = Depends(get_db)):
     """Return dynamic three-zone limits for camera controls based on configured FPS and resolution."""
