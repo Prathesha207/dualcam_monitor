@@ -101,12 +101,37 @@ async def start_recording(data: StartRecordingRequest, db: Session = Depends(get
 def stop_recording(data: StopRecordingRequest):
     try:
         result = oak_camera_service.stop_recording(data.session_id, camera_id=data.camera_id)
-        video_path = result.get("recording_path")
-        if not video_path or not os.path.exists(video_path):
-            logger.warning(f"[RECORD] File not found or empty on stop: {video_path}")
+        session_dir = result.get("session_dir", "")
+        clips = result.get("clips", [])
+
+        # Use the last clip's path as the representative recording path.
+        # Fall back to the first clip, then the session dir itself.
+        if clips:
+            video_path = clips[-1].get("path", "")
+            if not os.path.exists(video_path) and len(clips) > 0:
+                video_path = clips[0].get("path", "")
+        else:
+            video_path = result.get("recording_path", "")
+
+        # Validate: at minimum the session folder must exist
+        if not session_dir or not os.path.isdir(session_dir):
+            logger.warning(f"[RECORD] Session dir not found on stop: {session_dir}")
             raise HTTPException(status_code=404, detail="Recording session ended but file was not found")
 
-        filename = result.get("filename", os.path.basename(video_path))
+        if video_path and not os.path.exists(video_path):
+            # File may still be named _temp (encoder crash) — try the session dir listing
+            import glob
+            candidates = glob.glob(os.path.join(session_dir, f"clip*{result.get('format', '.mp4').lower()}"))
+            if not candidates:
+                candidates = glob.glob(os.path.join(session_dir, "clip*"))
+            if candidates:
+                video_path = sorted(candidates)[-1]
+                logger.warning(f"[RECORD] Primary path missing, using fallback: {video_path}")
+            else:
+                logger.warning(f"[RECORD] File not found on stop: {video_path}")
+                raise HTTPException(status_code=404, detail="Recording session ended but file was not found")
+
+        filename = result.get("filename", os.path.basename(video_path) if video_path else "recording")
         logger.info(f"[RECORD] Successfully finalized {filename} at {video_path}")
 
         return {

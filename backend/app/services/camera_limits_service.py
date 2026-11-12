@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import tempfile
 import threading
@@ -29,7 +30,7 @@ from sqlalchemy import text
 
 logger = logging.getLogger("camera-limits")
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 STANDARD_FPS = (5, 10, 15, 20, 25, 30, 60)
 DEFAULT_EXPOSURE_CEILING_US = 1_000_000
 
@@ -82,7 +83,9 @@ class RecommendedPolicy:
     gain_base: float = 100.0
     gain_stops_over_base: float = 6.0     # 100 -> 6400 on typical sensor
     exposure_fps_fraction: float = 0.95   # stay under frame period (95%)
-    comfort_fraction: float = 0.4         # +/- share of half-range for tone controls
+    comfort_fraction: float = 0.4         # +/- share of half-range for software tone controls
+    contrast_rec_min: float = -5.0        # measured flat-image lower threshold
+    contrast_rec_max: float = 8.0         # measured useful ceiling before highlight clipping
 
 
 @dataclass
@@ -106,11 +109,13 @@ class CameraLimits:
     def recommended(self, fps: float, p: RecommendedPolicy = RecommendedPolicy()) -> dict[str, Range]:
         base = max(self.gain.min, p.gain_base)
         rec_exp_max = min(self.exposure_us.max, (1_000_000.0 / fps) * p.exposure_fps_fraction)
+        c_min = max(self.contrast.min, min(self.contrast.max, p.contrast_rec_min))
+        c_max = max(c_min, min(self.contrast.max, p.contrast_rec_max))
         zones = {
             "gain": Range(base, min(self.gain.max, base * (2 ** p.gain_stops_over_base)), Source.PROFILE),
             "exposure_us": Range(self.exposure_us.min, rec_exp_max, Source.PROFILE),
             "brightness": _central(self.brightness, p.comfort_fraction),
-            "contrast": _central(self.contrast, p.comfort_fraction),
+            "contrast": Range(c_min, c_max, Source.PROFILE),
         }
         if self.focus:
             zones["focus"] = self.focus
@@ -293,6 +298,40 @@ def _resolve_default_cache_path() -> Path:
         return Path.home() / ".cache" / "camera_limits.json"
 
 
+def _range_sane(r: Optional[Range], require_positive: bool = False) -> bool:
+    if r is None:
+        return True
+    if not (math.isfinite(r.min) and math.isfinite(r.max)):
+        return False
+    if require_positive and r.min <= 0:
+        return False
+    return r.min < r.max
+
+
+def _sane(lim: CameraLimits) -> bool:
+    if not _range_sane(lim.gain, require_positive=True):
+        return False
+    if not _range_sane(lim.exposure_us, require_positive=True):
+        return False
+    if lim.focus is not None and not _range_sane(lim.focus):
+        return False
+    if not _range_sane(lim.brightness):
+        return False
+    if not _range_sane(lim.contrast):
+        return False
+    return True
+
+
+def _repair_invalid_ranges(lim: CameraLimits, ident: CameraIdentity) -> CameraLimits:
+    fb = _merged_fallback(ident)
+    gain = lim.gain if _range_sane(lim.gain, require_positive=True) else fb.gain
+    exposure_us = lim.exposure_us if _range_sane(lim.exposure_us, require_positive=True) else fb.exposure_us
+    focus = lim.focus if (lim.focus is None or _range_sane(lim.focus)) else fb.focus
+    brightness = lim.brightness if _range_sane(lim.brightness) else fb.brightness
+    contrast = lim.contrast if _range_sane(lim.contrast) else fb.contrast
+    return CameraLimits(ident, gain, exposure_us, focus, brightness, contrast)
+
+
 class CameraLimitsService:
     def __init__(self, cache_path: Optional[Path] = None):
         self._path = Path(cache_path) if cache_path else _resolve_default_cache_path()
@@ -306,6 +345,9 @@ class CameraLimitsService:
         except (KeyError, TypeError, ValueError):
             return None
         if lim:
+            if not _sane(lim):
+                logger.warning("Ignoring corrupt cached camera limits for %s", ident.key)
+                return None
             lim.identity = ident
         return lim
 
@@ -323,7 +365,7 @@ class CameraLimitsService:
                 return cached
         if backend is not None:
             try:
-                limits = probe_limits(ident, backend, exposure_ceiling_us)
+                limits = _repair_invalid_ranges(probe_limits(ident, backend, exposure_ceiling_us), ident)
                 self._put(ident.key, limits)
                 return limits
             except Exception:
@@ -543,6 +585,7 @@ def compute_camera_control_limits(
 
     # 1. Resolve camera hardware identity
     ident: Optional[CameraIdentity] = None
+    
     inst = camera_instance
     if inst is None:
         try:

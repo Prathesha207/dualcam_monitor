@@ -16,6 +16,9 @@ interface CameraTuningPopoverProps {
 
 // ── Log-Scale Conversion Helpers ──
 function valToLogPos(val: number, min: number, max: number): number {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min <= 0 || max <= min) {
+    return 0;
+  }
   const safeVal = Math.max(min, Math.min(max, val));
   const logMin = Math.log(min);
   const logMax = Math.log(max);
@@ -23,6 +26,9 @@ function valToLogPos(val: number, min: number, max: number): number {
 }
 
 function logPosToVal(pos: number, min: number, max: number, precision: number = 0): number {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min <= 0 || max <= min) {
+    return min;
+  }
   const p = Math.max(0, Math.min(1000, pos)) / 1000;
   const logMin = Math.log(min);
   const logMax = Math.log(max);
@@ -59,25 +65,43 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
     };
   }, [cameraId, activeFps]);
 
-  // Dynamic limits fallbacks
-  const gainHwMin = limitsData?.controls?.gain?.hardware_min ?? 65;
-  const gainHwMax = limitsData?.controls?.gain?.hardware_max ?? 16585;
+  // Dynamic limits fallbacks (with sanity guard against inverted cached ranges)
+  const rawGainMin = limitsData?.controls?.gain?.hardware_min;
+  const rawGainMax = limitsData?.controls?.gain?.hardware_max;
+  const hasValidGain = Number.isFinite(rawGainMin) && Number.isFinite(rawGainMax) && rawGainMax > rawGainMin;
+  const gainHwMin = hasValidGain ? rawGainMin : 65;
+  const gainHwMax = hasValidGain ? rawGainMax : 16585;
   const gainRecMin = limitsData?.controls?.gain?.recommended_min ?? 100;
   const gainRecMax = limitsData?.controls?.gain?.recommended_max ?? 6400;
 
-  const expHwMinMs = limitsData?.controls?.exposure ? limitsData.controls.exposure.hardware_min / 1000.0 : 0.086;
-  const expHwMaxMs = limitsData?.controls?.exposure ? limitsData.controls.exposure.hardware_max / 1000.0 : 1000.0;
+  const rawExpMinUs = limitsData?.controls?.exposure?.hardware_min;
+  const rawExpMaxUs = limitsData?.controls?.exposure?.hardware_max;
+  const hasValidExp = Number.isFinite(rawExpMinUs) && Number.isFinite(rawExpMaxUs) && rawExpMinUs > 0 && rawExpMaxUs > rawExpMinUs;
+  const expHwMinMs = hasValidExp ? rawExpMinUs / 1000.0 : 0.086;
+  const expHwMaxMs = hasValidExp ? rawExpMaxUs / 1000.0 : 1000.0;
   const expRecMinMs = limitsData?.controls?.exposure ? limitsData.controls.exposure.recommended_min / 1000.0 : 0.1;
   const expRecMaxMs = limitsData?.controls?.exposure ? limitsData.controls.exposure.recommended_max / 1000.0 : Math.floor(950 / activeFps);
-  const framePeriodMs = 1000.0 / activeFps;
+  const framePeriodMs = limitsData?.controls?.exposure?.frame_period_us
+    ? limitsData.controls.exposure.frame_period_us / 1000.0
+    : 1000.0 / activeFps;
 
   const focusMin = limitsData?.controls?.focus?.hardware_min ?? 0;
   const focusMax = limitsData?.controls?.focus?.hardware_max ?? 255;
 
   const contrastMin = limitsData?.controls?.contrast?.hardware_min ?? -10;
   const contrastMax = limitsData?.controls?.contrast?.hardware_max ?? 10;
+  const contrastRecMin = limitsData?.controls?.contrast?.recommended_min ?? -5;
+  const contrastRecMax = limitsData?.controls?.contrast?.recommended_max ?? 8;
+
   const brightnessMin = limitsData?.controls?.brightness?.min ?? -50;
   const brightnessMax = limitsData?.controls?.brightness?.max ?? 50;
+  const brightnessRecMin = limitsData?.controls?.brightness?.recommended_min ?? -20;
+  const brightnessRecMax = limitsData?.controls?.brightness?.recommended_max ?? 20;
+
+  const getWarningMsg = (ctrl: string, op: string, fallback: string): string => {
+    const rule = limitsData?.controls?.[ctrl]?.warnings?.find((w: any) => w.op === op);
+    return rule?.message || fallback;
+  };
 
   // ── Active Control Values ──
   const [exposure, setExposure] = useState<number>(config.exposure ?? 8);
@@ -515,7 +539,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         {gain > gainRecMax && (
           <div className="flex items-center gap-1 text-[9px] text-amber-500 font-medium pt-0.2">
             <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
-            <span>High sensor noise & digital grain</span>
+            <span>{getWarningMsg('gain', 'gt', 'High sensor noise and digital grain')}</span>
           </div>
         )}
       </div>
@@ -584,7 +608,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
         ) : isExpNearLimit ? (
           <div className="flex items-center gap-1 text-[9px] text-sky-400 font-medium pt-0.2">
             <Info className="w-2.5 h-2.5 shrink-0" />
-            <span>Near frame rate limit</span>
+            <span>{getWarningMsg('exposure', 'between', 'Near frame rate limit')}</span>
           </div>
         ) : null}
       </div>
@@ -609,8 +633,10 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
             style={getLinearSliderStyle(brightness, brightnessMin, brightnessMax)}
             className={`w-full h-1 rounded-lg ${isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
           />
-          {Math.abs(brightness) > 20 && (
-            <p className="text-[8.5px] text-amber-500 truncate pt-0.2">Luma shift reduces dynamic range</p>
+          {(brightness < brightnessRecMin || brightness > brightnessRecMax) && (
+            <p className="text-[8.5px] text-amber-500 truncate pt-0.2" title={getWarningMsg('brightness', 'abs_gt', 'Digital luma shift reduces dynamic range')}>
+              {getWarningMsg('brightness', 'abs_gt', 'Digital luma shift reduces dynamic range')}
+            </p>
           )}
         </div>
         <div>
@@ -631,10 +657,14 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
             style={getLinearSliderStyle(contrast, contrastMin, contrastMax)}
             className={`w-full h-1 rounded-lg ${isRecording ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
           />
-          {contrast > 8 ? (
-            <p className="text-[8.5px] text-amber-500 truncate pt-0.2">May clip specular highlights</p>
-          ) : contrast < -5 ? (
-            <p className="text-[8.5px] text-sky-400 truncate pt-0.2">Low contrast is flat</p>
+          {contrast > contrastRecMax ? (
+            <p className="text-[8.5px] text-amber-500 truncate pt-0.2" title={getWarningMsg('contrast', 'gt', 'Extreme contrast risks clipping specular highlights')}>
+              {getWarningMsg('contrast', 'gt', 'Extreme contrast risks clipping specular highlights')}
+            </p>
+          ) : contrast < contrastRecMin ? (
+            <p className="text-[8.5px] text-sky-400 truncate pt-0.2" title={getWarningMsg('contrast', 'lt', 'Low contrast creates a flat, washed-out image')}>
+              {getWarningMsg('contrast', 'lt', 'Low contrast creates a flat, washed-out image')}
+            </p>
           ) : null}
         </div>
       </div>

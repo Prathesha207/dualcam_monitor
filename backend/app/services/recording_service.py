@@ -7,6 +7,8 @@ and unique session folder naming to guarantee zero overwrites.
 
 import av
 from av.video.reformatter import VideoReformatter, ColorRange, Colorspace, ColorPrimaries, ColorTrc
+import cv2
+import numpy as np
 import os
 import queue
 import threading
@@ -23,36 +25,51 @@ logger = logging.getLogger("recording-service")
 active_recordings: dict = {}
 
 _NVENC_FUNCTIONAL: bool | None = None
+_NVENC_LOCK = threading.Lock()
 
-# Thread-safe reformatter for high-fidelity color range preservation
-_FULL_RANGE_REFORMATTER = VideoReformatter()
+# When True, MKV (FFV1) bakes non-zero Software Brightness into the NV12 luma (Y)
+# plane so recordings match live UI preview; brightness=0 remains 100% bit-exact sensor NV12.
+LOSSLESS_BAKE_BRIGHTNESS = True
+_LUMA_LUT_CACHE: dict[int, np.ndarray] = {}
+
+
+def _get_luma_lut(brightness: int) -> np.ndarray:
+    b = max(-50, min(50, int(brightness)))
+    if b not in _LUMA_LUT_CACHE:
+        # Match cv2.LUT BGR brightness offset (b * 2.5 in 0..255) scaled to BT.601 Y span (219/255)
+        offset = int(round(b * 2.5 * (219.0 / 255.0)))
+        _LUMA_LUT_CACHE[b] = np.clip(np.arange(256, dtype=np.int16) + offset, 0, 255).astype(np.uint8)
+    return _LUMA_LUT_CACHE[b]
 
 
 def _is_nvenc_functional() -> bool:
     global _NVENC_FUNCTIONAL
     if _NVENC_FUNCTIONAL is not None:
         return _NVENC_FUNCTIONAL
-    if "h264_nvenc" not in av.codec.codecs_available:
-        _NVENC_FUNCTIONAL = False
-        return False
-    try:
-        devnull = "nul" if os.name == "nt" else "/dev/null"
-        c = av.open(devnull, mode="w", format="mp4")
-        s = c.add_stream("h264_nvenc", rate=30)
-        s.width = 64
-        s.height = 64
-        s.pix_fmt = "yuv420p"
-        s.options = {"preset": "fast"}
-        f = av.VideoFrame(64, 64, "yuv420p")
-        s.encode(f)
-        c.close()
-        _NVENC_FUNCTIONAL = True
-        logger.info("[RECORD] Hardware acceleration verified: h264_nvenc is functional")
-        return True
-    except Exception as e:
-        logger.info(f"[RECORD] NVENC not functional on this system ({e}) — using optimized libx264")
-        _NVENC_FUNCTIONAL = False
-        return False
+    with _NVENC_LOCK:
+        if _NVENC_FUNCTIONAL is not None:
+            return _NVENC_FUNCTIONAL
+        if "h264_nvenc" not in av.codec.codecs_available:
+            _NVENC_FUNCTIONAL = False
+            return False
+        try:
+            devnull = "nul" if os.name == "nt" else "/dev/null"
+            c = av.open(devnull, mode="w", format="mp4")
+            s = c.add_stream("h264_nvenc", rate=30)
+            s.width = 64
+            s.height = 64
+            s.pix_fmt = "yuv420p"
+            s.options = {"preset": "fast"}
+            f = av.VideoFrame(64, 64, "yuv420p")
+            s.encode(f)
+            c.close()
+            _NVENC_FUNCTIONAL = True
+            logger.info("[RECORD] Hardware acceleration verified: h264_nvenc is functional")
+            return True
+        except Exception as e:
+            logger.info(f"[RECORD] NVENC not functional on this system ({e}) — using optimized libx264")
+            _NVENC_FUNCTIONAL = False
+            return False
 
 
 class RecordingSession:
@@ -114,7 +131,7 @@ class RecordingSession:
             codec_name = "ffv1"
             pix_fmt    = "yuv420p"
             ext        = ".mkv"
-            options    = {"level": "3"}
+            options    = {"level": "3", "coder": "1", "context": "1", "slicecrc": "1", "slices": "16"}
         else:  # Default: MP4 (H.264)
             fmt        = "MP4"
             pix_fmt    = "yuv420p"
@@ -124,7 +141,7 @@ class RecordingSession:
                 options    = {"preset": "fast", "cq": "18"}
             else:
                 codec_name = "libx264"
-                options    = {"preset": "fast", "crf": "17", "tune": "zerolatency"}
+                options    = {"preset": "veryfast", "crf": "17"}
 
         self.fmt = fmt
         self.codec_name = codec_name
@@ -133,13 +150,24 @@ class RecordingSession:
         self.codec_options = options
         self.width = width
         self.height = height
+        self.is_raw_nv12 = (fmt == "FFV1")
+        self._saw_nv12 = False
 
-        # Frame queue for uncompressed BGR frames
-        self.frame_queue = queue.Queue(maxsize=150)
+        # Per-session reformatter avoids cross-camera SwsContext races
+        self._reformatter = VideoReformatter()
+
+        # Frame queue for uncompressed BGR or raw NV12 payloads (300 = 5s @ 60fps / 10s @ 30fps)
+        self.frame_queue = queue.Queue(maxsize=300)
         self.is_running  = False
         self._start_mono = time.monotonic()
+        self._first_cam_ts_sec: float | None = None
+        self._first_cam_offset_ms: int = 0
         self._total_frames = 0
-        self._last_bgr = None
+        self._dropped_frames = 0
+        self._camera_frames_missing = 0
+        self._last_seq_num: int | None = None
+        self._last_drop_log = 0.0
+        self._last_frame_payload = None
         self._last_pts_ms = -1
 
         self.clips: list = []
@@ -192,8 +220,14 @@ class RecordingSession:
             self._stream.pix_fmt = self.pix_fmt
             if self.codec_options:
                 self._stream.options = self.codec_options
+            if self.codec_name == "ffv1":
+                try:
+                    self._stream.codec_context.thread_type = "SLICE"
+                    self._stream.codec_context.thread_count = min(16, os.cpu_count() or 4)
+                except Exception:
+                    pass
 
-            # Tag H.264 VUI metadata for pristine, accurate colors (no blue tint or washed out look)
+            # Tag H.264 VUI metadata for full-range BT.709 (matches OAK NV12/AVI/browser dynamic range)
             if self.fmt == "MP4":
                 try:
                     self._stream.codec_context.colorspace = Colorspace.ITU709
@@ -202,13 +236,36 @@ class RecordingSession:
                     self._stream.codec_context.color_range = ColorRange.JPEG
                 except Exception:
                     pass
+            elif self.fmt == "FFV1":
+                try:
+                    self._stream.codec_context.colorspace = Colorspace.ITU601
+                    self._stream.codec_context.color_primaries = ColorPrimaries.SMPTE170M
+                    self._stream.codec_context.color_trc = ColorTrc.BT709
+                    self._stream.codec_context.color_range = ColorRange.MPEG
+                except Exception:
+                    pass
 
             logger.info(f"[RECORD] Opened clip {self._current_clip_index} at {self._temp_clip_path}")
         except Exception as e:
-            logger.warning(f"[RECORD] Failed to open clip container with {self.codec_name}: {e}. Retrying with libx264...")
-            if self.codec_name != "libx264":
+            if self.fmt == "FFV1":
+                logger.warning(f"[RECORD] Failed to open FFV1 clip with full options: {e}. Retrying minimal FFV1...")
+                self.codec_options = {"level": "3"}
+                try:
+                    self._container = av.open(self._temp_clip_path, mode="w", options=container_options)
+                    self._stream = self._container.add_stream("ffv1", rate=1000)
+                    self._stream.width   = self.width
+                    self._stream.height  = self.height
+                    self._stream.pix_fmt = self.pix_fmt
+                    self._stream.options = self.codec_options
+                    logger.info(f"[RECORD] Fallback succeeded: opened clip {self._current_clip_index} with minimal FFV1")
+                except Exception as ex2:
+                    logger.error(f"[RECORD] FFV1 clip container failed: {ex2}", exc_info=True)
+                    self._container = None
+                    self._stream = None
+            elif self.fmt == "MP4" and self.codec_name != "libx264":
+                logger.warning(f"[RECORD] Failed to open clip container with {self.codec_name}: {e}. Retrying with libx264...")
                 self.codec_name = "libx264"
-                self.codec_options = {"preset": "fast", "crf": "17", "tune": "zerolatency"}
+                self.codec_options = {"preset": "veryfast", "crf": "17"}
                 try:
                     self._container = av.open(self._temp_clip_path, mode="w", options=container_options)
                     self._stream = self._container.add_stream(self.codec_name, rate=1000)
@@ -230,6 +287,7 @@ class RecordingSession:
                     self._container = None
                     self._stream = None
             else:
+                logger.error(f"[RECORD] Failed to open clip container ({self.codec_name}): {e}", exc_info=True)
                 self._container = None
                 self._stream = None
 
@@ -299,6 +357,11 @@ class RecordingSession:
             "status": status,
             "total_duration_seconds": round(total_dur, 2),
             "total_frames": self._total_frames,
+            "dropped_frames": self._dropped_frames,
+            "encoder_backlog_drops": self._dropped_frames,
+            "camera_frames_missing": self._camera_frames_missing,
+            "lossless_mode": "raw_nv12" if (self.is_raw_nv12 and self._saw_nv12) else ("bgr_lossless" if self.fmt == "FFV1" else "standard"),
+            "settings_history": list(self.settings_history),
             "clips": [
                 {
                     "index": c["index"],
@@ -318,6 +381,40 @@ class RecordingSession:
 
     # ── Worker Thread (Continuous chunking with balance retention) ────────────
 
+    def _final_clip_end_pts(self) -> int:
+        if self._current_clip_frames > 0 and self._last_pts_ms >= self._current_clip_start_pts_ms:
+            return self._last_pts_ms
+        return int((time.monotonic() - self._start_mono) * 1000)
+
+    def _build_video_frame(self, payload) -> av.VideoFrame:
+        if isinstance(payload, tuple) and len(payload) == 4 and payload[0] == "nv12":
+            _, y_plane, uv_plane, b_val = payload
+            if LOSSLESS_BAKE_BRIGHTNESS and b_val != 0:
+                y_plane = cv2.LUT(y_plane, _get_luma_lut(b_val))
+            frame = av.VideoFrame(self.width, self.height, "yuv420p")
+            frame.planes[0].update(np.ascontiguousarray(y_plane).tobytes())
+            frame.planes[1].update(np.ascontiguousarray(uv_plane[:, 0::2]).tobytes())
+            frame.planes[2].update(np.ascontiguousarray(uv_plane[:, 1::2]).tobytes())
+            frame.colorspace = Colorspace.ITU601
+            frame.color_range = ColorRange.MPEG
+            return frame
+
+        frame = av.VideoFrame.from_ndarray(payload, format="bgr24")
+        if self.fmt == "MP4":
+            # Full-range BT.709 conversion (matches AVI and browser dynamic range without lifted shadows)
+            frame = self._reformatter.reformat(
+                frame,
+                format=self._stream.pix_fmt,
+                src_color_range="JPEG",
+                dst_color_range="JPEG",
+                src_colorspace="ITU709",
+                dst_colorspace="ITU709",
+            )
+            frame.color_range = ColorRange.JPEG
+        elif frame.format.name != self._stream.pix_fmt:
+            frame = self._reformatter.reformat(frame, format=self._stream.pix_fmt)
+        return frame
+
     def _worker(self):
         clip_duration_ms = int(self.clip_duration_seconds * 1000)
         self._open_clip(start_pts_ms=0)
@@ -325,7 +422,7 @@ class RecordingSession:
         try:
             while self.is_running or not self.frame_queue.empty():
                 try:
-                    bgr, pts_ms = self.frame_queue.get(timeout=0.5)
+                    payload, pts_ms = self.frame_queue.get(timeout=0.5)
                 except queue.Empty:
                     continue
 
@@ -345,23 +442,7 @@ class RecordingSession:
                         rel_pts = self._last_encoded_pts + 1
                     self._last_encoded_pts = rel_pts
 
-                    # Create video frame directly from uncompressed BGR (zero double-compression)
-                    frame = av.VideoFrame.from_ndarray(bgr, format="bgr24")
-
-                    if self.fmt == "MP4":
-                        # Full-range BT.709 conversion (preserves 0-255 dynamic range, zero wash-out)
-                        frame = _FULL_RANGE_REFORMATTER.reformat(
-                            frame,
-                            format=self._stream.pix_fmt,
-                            src_color_range="JPEG",
-                            dst_color_range="JPEG",
-                            src_colorspace="ITU709",
-                            dst_colorspace="ITU709",
-                        )
-                        frame.color_range = ColorRange.JPEG
-                    elif frame.format.name != self._stream.pix_fmt:
-                        frame = frame.reformat(format=self._stream.pix_fmt)
-
+                    frame = self._build_video_frame(payload)
                     frame.pts = rel_pts
 
                     for pkt in self._stream.encode(frame):
@@ -383,42 +464,80 @@ class RecordingSession:
         except Exception as e:
             logger.error(f"[RECORD] Worker fatal exception: {e}", exc_info=True)
             if self._container:
-                end_pts = self._last_pts_ms if self._last_pts_ms > self._current_clip_start_pts_ms else int((time.monotonic() - self._start_mono) * 1000)
-                self._close_clip(end_pts)
+                self._close_clip(self._final_clip_end_pts())
                 self._write_session_json(status="interrupted_error")
         finally:
             if self._container:
-                end_pts = self._last_pts_ms if self._last_pts_ms > self._current_clip_start_pts_ms else int((time.monotonic() - self._start_mono) * 1000)
-                self._close_clip(end_pts)
+                self._close_clip(self._final_clip_end_pts())
             self._write_session_json(status="completed")
             logger.info(f"[RECORD] Finished session — {len(self.clips)} clips written to {self.session_dir}")
 
     # ── Public API ────────────────────────────────────────────────────────────
 
+    def _enqueue_payload(self, payload, pts_ms: int) -> None:
+        self._last_frame_payload = payload
+        try:
+            self.frame_queue.put((payload, pts_ms), timeout=0.01)
+        except queue.Full:
+            self._dropped_frames += 1
+            now = time.monotonic()
+            if now - self._last_drop_log >= 2.0:
+                self._last_drop_log = now
+                logger.warning(f"[RECORD] Frame queue full (300) — dropped {self._dropped_frames} frame(s) so far")
+            try:
+                self.frame_queue.get_nowait()
+                self.frame_queue.put_nowait((payload, pts_ms))
+            except Exception:
+                pass
+
+    def add_nv12_frame(
+        self,
+        y_plane: np.ndarray,
+        uv_plane: np.ndarray,
+        cam_ts_sec: float | None = None,
+        seq_num: int | None = None,
+        brightness: int = 0,
+    ) -> None:
+        """Add raw sensor NV12 Y/UV planes directly for bit-exact FFV1 recording."""
+        if not self.is_running:
+            return
+        self._saw_nv12 = True
+
+        if seq_num is not None:
+            if self._last_seq_num is not None and seq_num > self._last_seq_num + 1:
+                self._camera_frames_missing += (seq_num - self._last_seq_num - 1)
+            self._last_seq_num = seq_num
+
+        if cam_ts_sec is not None:
+            if self._first_cam_ts_sec is None:
+                self._first_cam_ts_sec = cam_ts_sec
+                self._first_cam_offset_ms = max(0, int((time.monotonic() - self._start_mono) * 1000))
+            pts_ms = self._first_cam_offset_ms + int((cam_ts_sec - self._first_cam_ts_sec) * 1000)
+        else:
+            pts_ms = int((time.monotonic() - self._start_mono) * 1000)
+
+        if pts_ms <= self._last_pts_ms:
+            pts_ms = self._last_pts_ms + 1
+        self._last_pts_ms = pts_ms
+
+        self._enqueue_payload(("nv12", y_plane, uv_plane, int(brightness or 0)), pts_ms)
+
     def add_frame(self, bgr):
         """Add uncompressed BGR frame directly to the recording queue."""
         if not self.is_running:
+            return
+        if self.is_raw_nv12 and self._saw_nv12:
             return
 
         pts_ms = int((time.monotonic() - self._start_mono) * 1000)
         if pts_ms <= self._last_pts_ms:
             pts_ms = self._last_pts_ms + 1
         self._last_pts_ms = pts_ms
-        self._last_bgr = bgr
 
-        try:
-            self.frame_queue.put_nowait((bgr, pts_ms))
-        except queue.Full:
-            try:
-                self.frame_queue.get_nowait()
-                self.frame_queue.put_nowait((bgr, pts_ms))
-            except Exception:
-                pass
+        self._enqueue_payload(bgr, pts_ms)
 
     def add_jpeg_frame(self, jpeg_bytes: bytes) -> None:
         """Compatibility shim — decodes JPEG if a caller passes JPEG bytes."""
-        import cv2
-        import numpy as np
         if not self.is_running:
             return
         try:
@@ -438,7 +557,7 @@ class RecordingSession:
         self.settings_history.append(event)
 
     def stop(self) -> dict:
-        if self._last_bgr is not None:
+        if self._last_frame_payload is not None:
             pad_pts_ms = int((time.monotonic() - self._start_mono) * 1000)
             if pad_pts_ms <= self._last_pts_ms:
                 pad_pts_ms = self._last_pts_ms + 1
@@ -446,7 +565,7 @@ class RecordingSession:
             self._last_pts_ms = pad_pts_ms
             logger.info(f"[RECORD] Padding final clip by {gap_ms} ms")
             try:
-                self.frame_queue.put_nowait((self._last_bgr, pad_pts_ms))
+                self.frame_queue.put_nowait((self._last_frame_payload, pad_pts_ms))
             except queue.Full:
                 pass
 
@@ -467,6 +586,8 @@ class RecordingSession:
             "filename": last_filename,
             "duration": round(duration, 2),
             "frames_written": self._total_frames,
+            "dropped_frames": self._dropped_frames,
+            "camera_frames_missing": self._camera_frames_missing,
             "format": self.fmt,
             "width": self.width,
             "height": self.height,

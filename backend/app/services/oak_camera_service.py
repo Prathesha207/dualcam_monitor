@@ -117,7 +117,7 @@ class OakCameraService:
         self._control_queue = None
 
         # ---- Inter-thread queue (hires capture -> converter) ----
-        self._hires_packet_queue: Queue = Queue(maxsize=16)
+        self._hires_packet_queue: Queue = Queue(maxsize=120)
 
         # ---- Stream queue (MJPEG thread -> HTTP streaming endpoint) ----
         self._stream_queue: asyncio.Queue | None = None
@@ -578,24 +578,40 @@ class OakCameraService:
             encoder.setQuality(95)
 
             if not is_color_camera:
-                # --- Node 1: MJPEG encoder → stream preview ---
-                mjpeg_out = cam.requestOutput(
-                    (width, height), type=dai.ImgFrame.Type.NV12, fps=fps
-                )
-                mjpeg_out.link(encoder.input)
-                self._mjpeg_dai_queue = encoder.bitstream.createOutputQueue(maxSize=4, blocking=False)
-                logger.info("[PIPELINE] Node 1: MJPEG encoder ready")
+                # Fan out a SINGLE camera output when fps == raw_fps so browser MJPEG
+                # and raw NV12 recording share the exact same ISP crop, FOV, and frames.
+                if raw_fps == fps:
+                    try:
+                        shared_out = cam.requestOutput(
+                            (width, height), type=dai.ImgFrame.Type.NV12, fps=fps
+                        )
+                        shared_out.link(encoder.input)
+                        self._mjpeg_dai_queue = encoder.bitstream.createOutputQueue(maxSize=4, blocking=False)
+                        self._raw_dai_queue = shared_out.createOutputQueue(maxSize=30, blocking=False)
+                        logger.info(f"[PIPELINE] Shared NV12 output wired to MJPEG + Raw queues (fps={fps})")
+                    except Exception as fanout_err:
+                        logger.warning(f"[PIPELINE] Shared fan-out fallback ({fanout_err}) — using dual requestOutput")
+                        self._mjpeg_dai_queue = None
+                        self._raw_dai_queue = None
 
-                # --- Node 2: Raw NV12 → recording ---
-                raw_out = cam.requestOutput(
-                    (width, height), type=dai.ImgFrame.Type.NV12, fps=raw_fps
-                )
-                self._raw_dai_queue = raw_out.createOutputQueue(maxSize=2, blocking=False)
-                logger.info(f"[PIPELINE] Node 2: Raw NV12 ready (fps={raw_fps})")
+                if self._mjpeg_dai_queue is None or self._raw_dai_queue is None:
+                    # Dual output fallback (also used on USB 2.0 where raw_fps < fps)
+                    mjpeg_out = cam.requestOutput(
+                        (width, height), type=dai.ImgFrame.Type.NV12, fps=fps
+                    )
+                    mjpeg_out.link(encoder.input)
+                    self._mjpeg_dai_queue = encoder.bitstream.createOutputQueue(maxSize=4, blocking=False)
+                    logger.info("[PIPELINE] Node 1: MJPEG encoder ready")
+
+                    raw_out = cam.requestOutput(
+                        (width, height), type=dai.ImgFrame.Type.NV12, fps=raw_fps
+                    )
+                    self._raw_dai_queue = raw_out.createOutputQueue(maxSize=30, blocking=False)
+                    logger.info(f"[PIPELINE] Node 2: Raw NV12 ready (fps={raw_fps})")
             else:
                 cam.video.link(encoder.input)
                 self._mjpeg_dai_queue = encoder.bitstream.createOutputQueue(maxSize=4, blocking=False)
-                self._raw_dai_queue = cam.video.createOutputQueue(maxSize=2, blocking=False)
+                self._raw_dai_queue = cam.video.createOutputQueue(maxSize=30, blocking=False)
                 logger.info("[PIPELINE] ColorCamera outputs wired successfully")
 
             # --- Camera control input ---
@@ -835,6 +851,88 @@ class OakCameraService:
 
     # ---- Thread 2: Hi-res capture ----
 
+    @staticmethod
+    def _extract_nv12_frame(pkt) -> tuple[np.ndarray, np.ndarray] | None:
+        """Unpack NV12 Y and UV planes safely, honoring DepthAI stride/plane alignment."""
+        try:
+            if hasattr(pkt, "getType") and pkt.getType() != dai.ImgFrame.Type.NV12:
+                return None
+            w = int(pkt.getWidth())
+            h = int(pkt.getHeight())
+        except Exception:
+            return None
+
+        if w <= 0 or h <= 0 or (w & 1) or (h & 1):
+            return None
+
+        data = np.asarray(pkt.getData(), dtype=np.uint8).ravel()
+        uv_h = h // 2
+
+        stride = w
+        plane_h = h
+        uv_offset = 0
+        try:
+            s = int(pkt.getStride())
+            if s >= w:
+                stride = s
+        except Exception:
+            pass
+        try:
+            ph = int(pkt.getPlaneHeight())
+            if ph >= h:
+                plane_h = ph
+        except Exception:
+            pass
+        try:
+            uv_offset = int(pkt.getPlaneStride(0))
+        except Exception:
+            uv_offset = 0
+
+        if uv_offset >= h * stride and uv_offset + uv_h * stride <= data.size:
+            y_plane = data[:plane_h * stride].reshape(plane_h, stride)[:h, :w].copy()
+            uv_plane = data[uv_offset:uv_offset + uv_h * stride].reshape(uv_h, stride)[:, :w].copy()
+            return y_plane, uv_plane
+
+        total_rows = h + uv_h
+        if data.size < total_rows * w:
+            return None
+
+        eff_stride = data.size // total_rows if (data.size % total_rows == 0) else w
+        if eff_stride < w or total_rows * eff_stride > data.size:
+            return None
+
+        buf2d = data[:total_rows * eff_stride].reshape(total_rows, eff_stride)
+        return buf2d[:h, :w].copy(), buf2d[h:total_rows, :w].copy()
+
+    def _feed_lossless_recording(self, rec, pkt) -> None:
+        """Feed raw NV12 planes directly into FFV1 recording from _hires_loop."""
+        extracted = self._extract_nv12_frame(pkt)
+        if extracted is None:
+            return
+        y_plane, uv_plane = extracted
+        if y_plane.shape != (rec.height, rec.width):
+            return
+
+        cam_ts_sec = None
+        seq_num = None
+        try:
+            ts = pkt.getTimestamp()
+            cam_ts_sec = ts.total_seconds() if hasattr(ts, "total_seconds") else float(ts)
+        except Exception:
+            pass
+        try:
+            seq_num = int(pkt.getSequenceNum())
+        except Exception:
+            pass
+
+        rec.add_nv12_frame(
+            y_plane,
+            uv_plane,
+            cam_ts_sec=cam_ts_sec,
+            seq_num=seq_num,
+            brightness=int(self.current_brightness or 0),
+        )
+
     def _hires_loop(self) -> None:
         """Drains raw NV12 DAI queue and queues packets for the converter thread."""
         logger.info("[HIRES] Thread running")
@@ -858,15 +956,34 @@ class OakCameraService:
                 except Exception:
                     pass
 
-                while not self._hires_packet_queue.empty():
+                rec = self._active_recording
+                is_raw_rec = bool(rec is not None and getattr(rec, "is_raw_nv12", False))
+                if is_raw_rec:
+                    self._feed_lossless_recording(rec, pkt)
+
+                # When recording BGR formats (MP4/AVI): keep every packet for converter thread.
+                # When streaming only or raw NV12 already consumed pkt: drain stale preview packets.
+                if rec is not None and not is_raw_rec:
                     try:
-                        self._hires_packet_queue.get_nowait()
+                        self._hires_packet_queue.put(pkt, timeout=0.05)
                     except Exception:
-                        break
-                try:
-                    self._hires_packet_queue.put_nowait(pkt)
-                except Exception:
-                    pass
+                        logger.warning("[HIRES] Packet queue full (120) during recording — dropping oldest frame to avoid memory buildup")
+                        try:
+                            self._hires_packet_queue.get_nowait()
+                            self._hires_packet_queue.put_nowait(pkt)
+                        except Exception:
+                            pass
+                else:
+                    # Stream-only / raw-NV12 preview mode: drain stale packets, keep only this latest one
+                    while not self._hires_packet_queue.empty():
+                        try:
+                            self._hires_packet_queue.get_nowait()
+                        except Exception:
+                            break
+                    try:
+                        self._hires_packet_queue.put_nowait(pkt)
+                    except Exception:
+                        pass
 
         except Exception as e:
             if not self._hires_stop.is_set():
@@ -891,17 +1008,29 @@ class OakCameraService:
 
         try:
             while not self._convert_stop.is_set() or not self._hires_packet_queue.empty():
-                pkt = None
-                while not self._hires_packet_queue.empty():
-                    try:
-                        pkt = self._hires_packet_queue.get_nowait()
-                    except Empty:
-                        break
-                if pkt is None:
+                # When recording non-raw BGR formats (MP4/AVI), process EVERY frame.
+                # When only streaming or raw NV12 (FFV1 fed directly in _hires_loop), drain to latest.
+                rec_active = self._active_recording
+                need_every_bgr = bool(rec_active is not None and not getattr(rec_active, "is_raw_nv12", False))
+                if need_every_bgr:
+                    # Recording mode: take one packet at a time (preserve every frame)
                     try:
                         pkt = self._hires_packet_queue.get(timeout=0.05)
                     except Empty:
                         continue
+                else:
+                    # Stream-only mode: drain to latest (shows most current frame)
+                    pkt = None
+                    while not self._hires_packet_queue.empty():
+                        try:
+                            pkt = self._hires_packet_queue.get_nowait()
+                        except Empty:
+                            break
+                    if pkt is None:
+                        try:
+                            pkt = self._hires_packet_queue.get(timeout=0.05)
+                        except Empty:
+                            continue
 
                 try:
                     raw_bgr = pkt.getCvFrame()
@@ -955,8 +1084,16 @@ class OakCameraService:
                 self._latest_bgr_seq = seq_num
                 self._latest_frame_data = (display_bgr, seq_num, ts_sec)
 
+                # Feed uncompressed BGR frame directly to MP4/AVI recording FIRST so browser
+                # preview JPEG encoding never delays or drops recorded frames.
+                # (FFV1 lossless sessions receive raw NV12 directly in _hires_loop.)
+                rec = self._active_recording
+                if rec is not None and not getattr(rec, "is_raw_nv12", False):
+                    rec.add_frame(display_bgr)
+                    record_frames += 1
+
                 # When software brightness is active (b != 0), encode and push display_bgr to stream
-                # so the live preview in the browser has 100% true parity with the MP4 recording
+                # so the live preview in the browser has 100% true parity with the recording
                 if b != 0:
                     try:
                         ret, buf = cv2.imencode(".jpg", display_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
@@ -970,11 +1107,6 @@ class OakCameraService:
                                 self._push_sync(jpeg_bytes)
                     except Exception as enc_err:
                         logger.debug(f"[CONVERT] Brightness stream encode failed: {enc_err}")
-
-                # Feed uncompressed BGR frame directly to recording (no intermediate JPEG artifacts)
-                if self._active_recording is not None:
-                    self._active_recording.add_frame(display_bgr)
-                    record_frames += 1
 
                 frames += 1
                 now = time.time()
@@ -1549,6 +1681,14 @@ class OakCameraService:
         if not self._is_running or not self.is_connected or self.device is None:
             raise RuntimeError("Cannot start recording: OAK camera is not running or disconnected")
 
+        if self._active_recording is not None and getattr(self._active_recording, "is_running", False):
+            if getattr(self._active_recording, "session_id", None) == session_id:
+                logger.warning(f"[RECORD] Duplicate start ignored for active session {session_id}")
+                return self._active_recording.session_dir
+            raise RuntimeError(
+                f"Recording already active on this camera ({self._active_recording.session_id})"
+            )
+
         if not (self._convert_thread and self._convert_thread.is_alive()) or not (self._mjpeg_thread and self._mjpeg_thread.is_alive()):
             logger.info("[RECORD] Capture threads not running — starting them now")
             self._start_capture_threads()
@@ -1621,8 +1761,11 @@ class OakCameraService:
         if self._active_recording:
             logger.info(f"[RECORD] Queue size before stop: {self._active_recording.frame_queue.qsize()}")
 
-        self._active_recording = None
+        # Stop the session first (flushes queue, finalizes clips, renames temp files).
+        # Only clear _active_recording AFTER _stop() so the convert loop keeps
+        # feeding frames until the worker thread has drained and closed the file.
         result = _stop(session_id)
+        self._active_recording = None
         logger.info(f"[RECORD] Recording stopped and session cleared → {result}")
 
         streaming_active = bool(self._is_streaming or self._stream_subscribers or (self._stream_queue is not None))
