@@ -1304,20 +1304,32 @@ class OakCameraService:
         if requested_mode == "manual" or (not requested_mode and any(v is not None for v in (exposure, gain, focus))):
             self.control_mode = "manual"
 
-        # 1. Update internal state first (Zone 1 Physical Hardware Clamping)
+        # 1. Update internal state first (Zone 1 Physical Hardware Clamping).
+        # Use the discovered sensor bounds when available so the values sent to
+        # the device match the ranges advertised by /camera/{id}/limits.
+        limits = getattr(self, "_discovered_limits", None)
         if brightness is not None:
-            self.current_brightness = max(-50, min(50, int(brightness)))
+            lo, hi = (limits.brightness.min, limits.brightness.max) if limits else (-50, 50)
+            self.current_brightness = int(max(lo, min(hi, int(brightness))))
         if contrast is not None:
-            self.current_contrast = max(-10, min(10, int(contrast)))
+            lo, hi = (limits.contrast.min, limits.contrast.max) if limits else (-10, 10)
+            self.current_contrast = int(max(lo, min(hi, int(contrast))))
         if gain is not None:
-            self.current_gain = max(65, min(16585, int(gain)))
+            lo, hi = (limits.gain.min, limits.gain.max) if limits else (65, 16585)
+            self.current_gain = int(max(lo, min(hi, int(gain))))
         if focus is not None:
-            self.current_focus = max(0, min(255, int(focus)))
-            self.focus_available = True
+            focus_limits = limits.focus if limits else None
+            if limits is None or focus_limits is not None:
+                lo, hi = (focus_limits.min, focus_limits.max) if focus_limits else (0, 255)
+                self.current_focus = int(max(lo, min(hi, int(focus))))
+                self.focus_available = True
+            else:
+                self.focus_available = False
         if exposure is not None:
             val = float(exposure)
             exp_us = int(val * 1000) if val <= 1000 else int(val)
-            self.current_exposure_us = max(86, min(1_000_000, exp_us))
+            lo, hi = (limits.exposure_us.min, limits.exposure_us.max) if limits else (86, 1_000_000)
+            self.current_exposure_us = int(max(lo, min(hi, exp_us)))
 
         self.auto_exposure_enabled = self.auto_focus_enabled = False
         self._monitor_baseline_sharpness = None
@@ -1337,7 +1349,7 @@ class OakCameraService:
             # Full apply (startup or reconnect): dispatch all registers
             self.auto_exposure_enabled = self.auto_focus_enabled = False
             ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
-            if self.current_focus is not None:
+            if self.current_focus is not None and self.focus_available:
                 ctrl.setManualFocus(self.current_focus)
             ctrl.setManualExposure(self.current_exposure_us, self.current_gain)
             ctrl.setContrast(self.current_contrast)
@@ -1354,7 +1366,7 @@ class OakCameraService:
             # Focus
             if self.current_focus != self._last_sent_focus:
                 ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
-                if self.current_focus is not None:
+                if self.current_focus is not None and self.focus_available:
                     ctrl.setManualFocus(self.current_focus)
                 self._last_sent_focus = self.current_focus
                 has_updates = True

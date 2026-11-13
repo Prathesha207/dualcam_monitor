@@ -15,6 +15,7 @@ import threading
 import time
 import logging
 import json
+from fractions import Fraction
 from datetime import datetime
 from app.core.app_paths import get_desktop_dir
 from app.services.camera_service import safe_camera_name
@@ -218,6 +219,11 @@ class RecordingSession:
             self._stream.width   = self.width
             self._stream.height  = self.height
             self._stream.pix_fmt = self.pix_fmt
+            # Frame PTS values below are milliseconds. Keep the encoder and muxer
+            # on that same clock so timestamp rescaling cannot produce damaged
+            # GOPs or uneven frame timing across containers/codecs.
+            self._stream.time_base = Fraction(1, 1000)
+            self._stream.codec_context.time_base = Fraction(1, 1000)
             if self.codec_options:
                 self._stream.options = self.codec_options
             if self.codec_name == "ffv1":
@@ -256,6 +262,8 @@ class RecordingSession:
                     self._stream.width   = self.width
                     self._stream.height  = self.height
                     self._stream.pix_fmt = self.pix_fmt
+                    self._stream.time_base = Fraction(1, 1000)
+                    self._stream.codec_context.time_base = Fraction(1, 1000)
                     self._stream.options = self.codec_options
                     logger.info(f"[RECORD] Fallback succeeded: opened clip {self._current_clip_index} with minimal FFV1")
                 except Exception as ex2:
@@ -272,6 +280,8 @@ class RecordingSession:
                     self._stream.width   = self.width
                     self._stream.height  = self.height
                     self._stream.pix_fmt = self.pix_fmt
+                    self._stream.time_base = Fraction(1, 1000)
+                    self._stream.codec_context.time_base = Fraction(1, 1000)
                     if self.codec_options:
                         self._stream.options = self.codec_options
                     try:
@@ -444,6 +454,7 @@ class RecordingSession:
 
                     frame = self._build_video_frame(payload)
                     frame.pts = rel_pts
+                    frame.time_base = Fraction(1, 1000)
 
                     for pkt in self._stream.encode(frame):
                         if pkt.dts is not None:
@@ -534,7 +545,9 @@ class RecordingSession:
             pts_ms = self._last_pts_ms + 1
         self._last_pts_ms = pts_ms
 
-        self._enqueue_payload(bgr, pts_ms)
+        # Own the queued pixels. This prevents a producer reusing or mutating its
+        # image buffer before the background encoder has consumed the frame.
+        self._enqueue_payload(np.ascontiguousarray(bgr).copy(), pts_ms)
 
     def add_jpeg_frame(self, jpeg_bytes: bytes) -> None:
         """Compatibility shim — decodes JPEG if a caller passes JPEG bytes."""

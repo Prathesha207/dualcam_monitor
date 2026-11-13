@@ -153,19 +153,23 @@ def update_live_controls(
                 control_mode=data.control_mode,
             )
 
+        # Persist the clamped values actually applied by the camera service,
+        # rather than an out-of-range slider/request value.
+        applied = inst._camera_settings() if inst.is_running else {}
+
         # 2. Persist controls to DB so settings are remembered
         camera = db.query(Camera).filter(Camera.id == camera_id).first()
         if camera:
             if data.exposure is not None:
-                camera.exposure = data.exposure
+                camera.exposure = applied.get("exposure", data.exposure)
             if data.gain is not None:
-                camera.gain = data.gain
+                camera.gain = applied.get("gain", data.gain)
             if data.focus is not None:
-                camera.focus = data.focus
+                camera.focus = applied.get("focus", data.focus)
             if data.brightness is not None:
-                camera.brightness = data.brightness
+                camera.brightness = applied.get("brightness", data.brightness)
             if data.contrast is not None:
-                camera.contrast = data.contrast
+                camera.contrast = applied.get("contrast", data.contrast)
             if data.control_mode is not None:
                 camera.control_mode = data.control_mode
             if af is not None:

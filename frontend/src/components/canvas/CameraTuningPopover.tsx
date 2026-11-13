@@ -87,6 +87,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
 
   const focusMin = limitsData?.controls?.focus?.hardware_min ?? 0;
   const focusMax = limitsData?.controls?.focus?.hardware_max ?? 255;
+  const focusAvailable = limitsData?.controls?.focus?.available ?? (config.focusAvailable !== false);
 
   const contrastMin = limitsData?.controls?.contrast?.hardware_min ?? -10;
   const contrastMax = limitsData?.controls?.contrast?.hardware_max ?? 10;
@@ -552,7 +553,7 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
             <span>Focus</span>
           </div>
           <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-[var(--accent-pond-subtle)] text-[var(--accent-pond)] border border-[var(--accent-pond)]/30">
-            {config.focusAvailable === false ? 'Auto' : focus}
+            {focusAvailable ? focus : 'Auto'}
           </span>
         </div>
         <input
@@ -561,10 +562,10 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
           max={focusMax}
           step={1}
           value={focus}
-          disabled={isRecording || config.focusAvailable === false}
+          disabled={isRecording || !focusAvailable}
           onChange={(e) => handleFocusChange(parseInt(e.target.value, 10))}
           style={getLinearSliderStyle(focus, focusMin, focusMax)}
-          className={`w-full h-1 rounded-lg ${isRecording || config.focusAvailable === false ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
+          className={`w-full h-1 rounded-lg ${isRecording || !focusAvailable ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`}
         />
       </div>
 
