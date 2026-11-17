@@ -16,7 +16,7 @@ import {
   Radio,
   Lock,
 } from 'lucide-react';
-import { Modal, Button, NumberStepper } from './ui';
+import { Modal, Button, NumberStepper, Switch } from './ui';
 
 interface CameraEditModalProps {
   isOpen: boolean;
@@ -443,8 +443,8 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
 
             {/* Record Depth Stream Toggle */}
             <div className="sm:col-span-2 space-y-1 pt-2 border-t border-[var(--border-color)]/60">
-              <div className="flex items-center justify-between">
-                <div>
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0 pr-2">
                   <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider block">
                     Record Depth Stream
                   </span>
@@ -452,22 +452,16 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
                     Saves bit-exact 16-bit depth (.mkv) and synchronized visual preview in the same folder.
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setRecordDepth(!recordDepth)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
-                    recordDepth
-                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                      : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-color)]'
-                  }`}
-                >
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      recordDepth ? 'bg-emerald-500' : 'bg-gray-400'
-                    }`}
-                  />
-                  <span>{recordDepth ? 'Depth: Enabled' : 'Color Only'}</span>
-                </button>
+                <Switch
+                  checked={recordDepth}
+                  onChange={(checked) => setRecordDepth(checked)}
+                  stateLabel={{
+                    on: 'Depth: Enabled',
+                    off: 'Color Only',
+                  }}
+                  activeColor="emerald"
+                  aria-label="Toggle record depth stream"
+                />
               </div>
             </div>
 

@@ -7,3 +7,4 @@ export * from './NumberStepper';
 export * from './Alert';
 export * from './Modal';
 export * from './Toast';
+export * from './Switch';

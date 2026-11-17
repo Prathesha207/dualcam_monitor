@@ -13,7 +13,7 @@ import {
   FolderOpen,
   HardDrive,
 } from 'lucide-react';
-import { Modal, Button, NumberStepper } from './ui';
+import { Modal, Button, NumberStepper, Switch } from './ui';
 import { cameraService, type CameraData } from './service/cameraService';
 
 interface CameraSettingsModalProps {
@@ -587,36 +587,30 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
 
                 {/* Record Depth Stream Toggle */}
                 <div className="sm:col-span-2 space-y-1 pt-1.5 border-t border-[var(--border-color)]/60">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] font-bold text-[var(--text-secondary)] block">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0 pr-2">
+                      <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider block">
                         Record Depth Stream
                       </span>
                       <span className="text-[10px] text-[var(--text-muted)]">
                         Saves bit-exact 16-bit depth (.mkv) and synchronized visual preview in the same folder.
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() =>
+                    <Switch
+                      checked={localConfig.recordDepth !== false}
+                      onChange={(checked) =>
                         setLocalConfig({
                           ...localConfig,
-                          recordDepth: localConfig.recordDepth === false ? true : false,
+                          recordDepth: checked,
                         })
                       }
-                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
-                        localConfig.recordDepth !== false
-                          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                          : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-color)]'
-                      }`}
-                    >
-                      <span
-                        className={`w-2 h-2 rounded-full ${
-                          localConfig.recordDepth !== false ? 'bg-emerald-500' : 'bg-gray-400'
-                        }`}
-                      />
-                      <span>{localConfig.recordDepth !== false ? 'Depth: Enabled' : 'Color Only'}</span>
-                    </button>
+                      stateLabel={{
+                        on: 'Depth: Enabled',
+                        off: 'Color Only',
+                      }}
+                      activeColor="emerald"
+                      aria-label="Toggle record depth stream"
+                    />
                   </div>
                 </div>
 

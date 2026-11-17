@@ -359,15 +359,20 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                     ? 'Depth recording is ON (Saving color + 16-bit depth MKV + preview). Click to record Color only.'
                     : 'Depth recording is OFF (Color only). Click to enable 16-bit Depth stream recording.'
                 }
-                className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9.5px] font-semibold transition-all border shrink-0 ${
+                className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[9.5px] font-bold tracking-tight transition-all border shrink-0 ${
                   isRecording
                     ? 'opacity-40 cursor-not-allowed bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border-color)]'
                     : 'cursor-pointer active:scale-95 ' +
                       (camera.recordDepth !== false
-                        ? 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/25'
+                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25 shadow-2xs'
                         : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-color)] hover:text-[var(--text-primary)] hover:border-[var(--accent-pond)]')
                 }`}
               >
+                <span
+                  className={`w-1.5 h-1.5 rounded-full transition-colors ${
+                    camera.recordDepth !== false ? 'bg-emerald-500' : 'bg-gray-400'
+                  }`}
+                />
                 <span>DEPTH: {camera.recordDepth !== false ? 'ON' : 'OFF'}</span>
               </button>
             </div>
