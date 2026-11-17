@@ -120,7 +120,9 @@ class OakCameraService:
         self._hires_packet_queue: Queue = Queue(maxsize=120)
         # Recording conversion runs separately so slow disk/codec work cannot
         # make the live preview consume an increasingly stale packet backlog.
-        self._record_packet_queue: Queue = Queue(maxsize=120)
+        # Keep every captured packet for recording. The preview has its own
+        # latest-frame queue and never waits for this lossless path.
+        self._record_packet_queue: Queue = Queue()
 
         # ---- Stream queue (MJPEG thread -> HTTP streaming endpoint) ----
         self._stream_queue: asyncio.Queue | None = None
@@ -992,7 +994,7 @@ class OakCameraService:
         buf2d = data[:total_rows * eff_stride].reshape(total_rows, eff_stride)
         return buf2d[:h, :w].copy(), buf2d[h:total_rows, :w].copy()
 
-    def _feed_lossless_recording(self, rec, pkt) -> None:
+    def _feed_lossless_recording(self, rec, pkt, brightness: int | None = None) -> None:
         """Feed raw NV12 planes directly into FFV1 recording from _hires_loop."""
         extracted = self._extract_nv12_frame(pkt)
         if extracted is None:
@@ -1018,7 +1020,7 @@ class OakCameraService:
             uv_plane,
             cam_ts_sec=cam_ts_sec,
             seq_num=seq_num,
-            brightness=int(self.current_brightness or 0),
+            brightness=int(self.current_brightness or 0) if brightness is None else brightness,
         )
 
     def _hires_loop(self) -> None:
@@ -1045,26 +1047,15 @@ class OakCameraService:
                     pass
 
                 rec = self._active_recording
-                is_raw_rec = bool(rec is not None and getattr(rec, "is_raw_nv12", False))
-                if is_raw_rec:
-                    self._feed_lossless_recording(rec, pkt)
-
                 # Preserve recording packets on an independent worker. The preview
                 # queue always keeps only the newest packet for low latency.
-                if rec is not None and not is_raw_rec:
+                if rec is not None:
                     try:
                         rec._capture_packets_pending = getattr(rec, "_capture_packets_pending", 0) + 1
                         self._record_packet_queue.put_nowait((rec, pkt, int(self.current_brightness or 0)))
-                    except Full:
+                    except Exception:
                         rec._capture_packets_pending = max(0, rec._capture_packets_pending - 1)
-                        try:
-                            old_rec, _, _ = self._record_packet_queue.get_nowait()
-                            old_rec._capture_packets_pending = max(0, getattr(old_rec, "_capture_packets_pending", 1) - 1)
-                            rec._capture_packets_pending = getattr(rec, "_capture_packets_pending", 0) + 1
-                            self._record_packet_queue.put_nowait((rec, pkt, int(self.current_brightness or 0)))
-                        except Exception:
-                            rec._capture_packets_pending = max(0, getattr(rec, "_capture_packets_pending", 0) - 1)
-                            pass
+                        logger.exception("[RECORD] Could not queue captured camera packet")
                 while not self._hires_packet_queue.empty():
                     try:
                         self._hires_packet_queue.get_nowait()
@@ -1207,10 +1198,13 @@ class OakCameraService:
             except Empty:
                 continue
             try:
-                frame = pkt.getCvFrame()
-                if brightness:
-                    frame = cv2.LUT(frame, _get_brightness_lut(brightness))
-                rec.add_frame(frame)
+                if getattr(rec, "is_raw_nv12", False):
+                    self._feed_lossless_recording(rec, pkt, brightness=brightness)
+                else:
+                    frame = pkt.getCvFrame()
+                    if brightness:
+                        frame = cv2.LUT(frame, _get_brightness_lut(brightness))
+                    rec.add_frame(frame)
             except Exception as e:
                 logger.warning(f"[RECORD] Packet conversion failed: {e}")
             finally:
