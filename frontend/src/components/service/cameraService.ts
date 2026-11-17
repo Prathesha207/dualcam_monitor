@@ -19,6 +19,7 @@ export interface CameraData {
   recording_format?: string;
   recording_video_path?: string | null;
   clip_duration_minutes?: number;
+  record_depth?: boolean;
 }
 
 export const cameraService = {
