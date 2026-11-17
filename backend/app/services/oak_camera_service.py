@@ -664,7 +664,17 @@ class OakCameraService:
             if not skip_stereo and wants_depth and self.device is not None:
                 try:
                     stereo = pipeline.create(dai.node.StereoDepth)
-                    stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
+                    # DepthAI v2 calls this HIGH_DENSITY; DepthAI v3.11
+                    # renamed it to DENSITY. Select the best available preset
+                    # instead of failing the whole stereo graph.
+                    stereo_presets = dai.node.StereoDepth.PresetMode
+                    depth_preset = (
+                        getattr(stereo_presets, "HIGH_DENSITY", None)
+                        or getattr(stereo_presets, "DENSITY", None)
+                        or getattr(stereo_presets, "HIGH_DETAIL", None)
+                        or getattr(stereo_presets, "DEFAULT")
+                    )
+                    stereo.setDefaultProfilePreset(depth_preset)
                     stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
                     # StereoDepth sensors do not generally support the color
                     # stream's 1920x1080 output size. Requesting that size
