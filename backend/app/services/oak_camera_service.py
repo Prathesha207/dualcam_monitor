@@ -995,7 +995,7 @@ class OakCameraService:
         return buf2d[:h, :w].copy(), buf2d[h:total_rows, :w].copy()
 
     def _feed_lossless_recording(self, rec, pkt, brightness: int | None = None) -> None:
-        """Feed raw NV12 planes directly into FFV1 recording from _hires_loop."""
+        """Feed raw NV12 planes directly into FFV1 recording from its worker."""
         extracted = self._extract_nv12_frame(pkt)
         if extracted is None:
             return
@@ -1204,7 +1204,18 @@ class OakCameraService:
                     frame = pkt.getCvFrame()
                     if brightness:
                         frame = cv2.LUT(frame, _get_brightness_lut(brightness))
-                    rec.add_frame(frame)
+                    cam_ts_sec = None
+                    seq_num = None
+                    try:
+                        ts = pkt.getTimestamp()
+                        cam_ts_sec = ts.total_seconds() if hasattr(ts, "total_seconds") else float(ts)
+                    except Exception:
+                        pass
+                    try:
+                        seq_num = int(pkt.getSequenceNum())
+                    except Exception:
+                        pass
+                    rec.add_frame(frame, cam_ts_sec=cam_ts_sec, seq_num=seq_num, copy_frame=False)
             except Exception as e:
                 logger.warning(f"[RECORD] Packet conversion failed: {e}")
             finally:
