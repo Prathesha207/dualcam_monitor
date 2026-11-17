@@ -184,8 +184,9 @@ class RecordingSession:
         # Per-session reformatter avoids cross-camera SwsContext races
         self._reformatter = VideoReformatter()
 
-        # Frame queue for uncompressed BGR or raw NV12 payloads (300 = 5s @ 60fps / 10s @ 30fps)
-        self.frame_queue = queue.Queue(maxsize=300)
+        # Preserve every accepted camera frame while the encoder drains it.
+        # Preview uses a separate latest-frame path and never waits on this queue.
+        self.frame_queue = queue.Queue()
         self.is_running  = False
         self._start_mono = time.monotonic()
         self._first_cam_ts_sec: float | None = None
@@ -195,6 +196,7 @@ class RecordingSession:
         self._camera_frames_missing = 0
         self._last_seq_num: int | None = None
         self._last_drop_log = 0.0
+        self._last_backlog_log = 0.0
         self._last_frame_payload = None
         self._last_pts_ms = -1
 
@@ -742,19 +744,14 @@ class RecordingSession:
 
     def _enqueue_payload(self, payload, pts_ms: int) -> None:
         self._last_frame_payload = payload
-        try:
-            self.frame_queue.put((payload, pts_ms), timeout=0.01)
-        except queue.Full:
-            self._dropped_frames += 1
-            now = time.monotonic()
-            if now - self._last_drop_log >= 2.0:
-                self._last_drop_log = now
-                logger.warning(f"[RECORD] Frame queue full (300) — dropped {self._dropped_frames} frame(s) so far")
-            try:
-                self.frame_queue.get_nowait()
-                self.frame_queue.put_nowait((payload, pts_ms))
-            except Exception:
-                pass
+        self.frame_queue.put_nowait((payload, pts_ms))
+        backlog = self.frame_queue.qsize()
+        now = time.monotonic()
+        if backlog >= 300 and now - self._last_backlog_log >= 2.0:
+            self._last_backlog_log = now
+            logger.warning(
+                f"[RECORD] Encoder backlog is {backlog} frames; preserving all frames while the encoder catches up"
+            )
 
     def add_depth_frame(
         self,
@@ -832,21 +829,34 @@ class RecordingSession:
 
         self._enqueue_payload(payload, pts_ms)
 
-    def add_frame(self, bgr):
+    def add_frame(self, bgr, cam_ts_sec: float | None = None, seq_num: int | None = None, copy_frame: bool = True):
         """Add uncompressed BGR frame directly to the recording queue."""
         if not self.is_running:
             return
         if self.is_raw_nv12 and self._saw_nv12:
             return
 
-        pts_ms = int((time.monotonic() - self._start_mono) * 1000)
+        if seq_num is not None:
+            if self._last_seq_num is not None and seq_num > self._last_seq_num + 1:
+                self._camera_frames_missing += seq_num - self._last_seq_num - 1
+            self._last_seq_num = seq_num
+
+        if cam_ts_sec is not None:
+            if self._first_cam_ts_sec is None:
+                self._first_cam_ts_sec = cam_ts_sec
+                self._first_cam_offset_ms = max(0, int((time.monotonic() - self._start_mono) * 1000))
+            pts_ms = self._first_cam_offset_ms + int((cam_ts_sec - self._first_cam_ts_sec) * 1000)
+        else:
+            pts_ms = int((time.monotonic() - self._start_mono) * 1000)
         if pts_ms <= self._last_pts_ms:
             pts_ms = self._last_pts_ms + 1
         self._last_pts_ms = pts_ms
 
-        # Own the queued pixels. This prevents a producer reusing or mutating its
-        # image buffer before the background encoder has consumed the frame.
-        color_payload = np.ascontiguousarray(bgr).copy()
+        # The camera packet worker may transfer its freshly allocated image
+        # without another full-frame copy; other callers retain safe copy behavior.
+        color_payload = np.ascontiguousarray(bgr)
+        if copy_frame:
+            color_payload = color_payload.copy()
         with self._depth_lock:
             d_frame = self._latest_depth_raw
             if d_frame is not None and (self.record_depth or self._saw_depth):
