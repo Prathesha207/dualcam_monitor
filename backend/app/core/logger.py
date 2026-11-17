@@ -58,7 +58,11 @@ class HourlyFileHandler(logging.Handler):
                 except Exception:
                     pass
             full_path = os.path.join(self.base_dir, date_folder, hour_folder)
-            os.makedirs(full_path, exist_ok=True)
+            try:
+                os.makedirs(full_path, exist_ok=True)
+            except OSError:
+                full_path = os.path.join(os.getcwd(), "logs", date_folder, hour_folder)
+                os.makedirs(full_path, exist_ok=True)
             log_file_path = os.path.join(full_path, f"session_{hour_folder}.log")
             self._active_handler = RotatingFileHandler(
                 log_file_path,

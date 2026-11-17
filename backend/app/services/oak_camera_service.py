@@ -12,7 +12,7 @@ import re
 import threading
 import time
 from collections import deque
-from queue import Queue, Empty
+from queue import Queue, Empty, Full
 from typing import Any, Optional, Dict
 
 import cv2
@@ -118,6 +118,9 @@ class OakCameraService:
 
         # ---- Inter-thread queue (hires capture -> converter) ----
         self._hires_packet_queue: Queue = Queue(maxsize=120)
+        # Recording conversion runs separately so slow disk/codec work cannot
+        # make the live preview consume an increasingly stale packet backlog.
+        self._record_packet_queue: Queue = Queue(maxsize=120)
 
         # ---- Stream queue (MJPEG thread -> HTTP streaming endpoint) ----
         self._stream_queue: asyncio.Queue | None = None
@@ -129,10 +132,18 @@ class OakCameraService:
         self._mjpeg_thread: threading.Thread | None = None
         self._hires_thread: threading.Thread | None = None
         self._convert_thread: threading.Thread | None = None
+        self._record_thread: threading.Thread | None = None
 
         self._mjpeg_stop = threading.Event()
         self._hires_stop = threading.Event()
         self._convert_stop = threading.Event()
+
+        # ---- Depth capture state & queues ----
+        self.has_depth: bool = False
+        self._latest_depth_raw: np.ndarray | None = None
+        self._depth_dai_queue = None
+        self._depth_thread: threading.Thread | None = None
+        self._depth_stop = threading.Event()
 
         # ---- Latest BGR & JPEG frame caches ----
         self._latest_bgr: np.ndarray | None = None
@@ -617,6 +628,51 @@ class OakCameraService:
             # --- Camera control input ---
             self._control_queue = cam.inputControl.createInputQueue(maxSize=4, blocking=False)
 
+            # --- Optional StereoDepth node (if device has stereo sockets CAM_B and CAM_C) ---
+            has_stereo = False
+            if self.device is not None:
+                try:
+                    con_cams = self.device.getConnectedCameras()
+                    con_names = [getattr(c, "name", str(c)).upper() for c in con_cams]
+                    has_b = any("CAM_B" in n or "LEFT" in n for n in con_names)
+                    has_c = any("CAM_C" in n or "RIGHT" in n for n in con_names)
+                    has_stereo = has_b and has_c
+                except Exception:
+                    has_stereo = False
+
+            if has_stereo:
+                try:
+                    mono_left = pipeline.create(dai.node.MonoCamera)
+                    mono_left.setBoardSocket(dai.CameraBoardSocket.CAM_B)
+                    mono_left.setFps(raw_fps)
+                    if hasattr(dai.MonoCameraProperties, "SensorResolution"):
+                        mono_left.setResolution(dai.MonoCameraProperties.SensorResolution.THE_720_P)
+
+                    mono_right = pipeline.create(dai.node.MonoCamera)
+                    mono_right.setBoardSocket(dai.CameraBoardSocket.CAM_C)
+                    mono_right.setFps(raw_fps)
+                    if hasattr(dai.MonoCameraProperties, "SensorResolution"):
+                        mono_right.setResolution(dai.MonoCameraProperties.SensorResolution.THE_720_P)
+
+                    stereo = pipeline.create(dai.node.StereoDepth)
+                    stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
+                    stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
+                    stereo.setOutputSize(width, height)
+
+                    mono_left.out.link(stereo.left)
+                    mono_right.out.link(stereo.right)
+
+                    self._depth_dai_queue = stereo.depth.createOutputQueue(maxSize=10, blocking=False)
+                    self.has_depth = True
+                    logger.info("[PIPELINE] Node 3: StereoDepth configured successfully (aligned to CAM_A)")
+                except Exception as stereo_err:
+                    logger.warning(f"[PIPELINE] StereoDepth build failed: {stereo_err}. Running in RGB-only mode.")
+                    self.has_depth = False
+                    self._depth_dai_queue = None
+            else:
+                self.has_depth = False
+                self._depth_dai_queue = None
+
             logger.info("[PIPELINE] Build success")
             return True
 
@@ -705,6 +761,7 @@ class OakCameraService:
             mjpeg_alive = self._mjpeg_thread and self._mjpeg_thread.is_alive()
             hires_alive = self._hires_thread and self._hires_thread.is_alive()
             convert_alive = self._convert_thread and self._convert_thread.is_alive()
+            record_alive = self._record_thread and self._record_thread.is_alive()
 
             if not mjpeg_alive:
                 self._mjpeg_stop.clear()
@@ -730,6 +787,23 @@ class OakCameraService:
                 self._convert_thread.start()
                 logger.info("[CAPTURE] Converter thread started")
 
+            if not record_alive:
+                self._record_thread = threading.Thread(
+                    target=self._record_convert_loop, name="oak-record-convert", daemon=True
+                )
+                self._record_thread.start()
+                logger.info("[CAPTURE] Recording converter thread started")
+
+            if self._depth_dai_queue is not None:
+                depth_alive = self._depth_thread and self._depth_thread.is_alive()
+                if not depth_alive:
+                    self._depth_stop.clear()
+                    self._depth_thread = threading.Thread(
+                        target=self._depth_loop, name="oak-depth", daemon=True
+                    )
+                    self._depth_thread.start()
+                    logger.info("[CAPTURE] Depth thread started")
+
             return True
 
     def _stop_capture_threads(self) -> None:
@@ -739,10 +813,19 @@ class OakCameraService:
             self._mjpeg_stop.set()
             self._hires_stop.set()
             self._convert_stop.set()
+            self._depth_stop.set()
+
+            if self._depth_thread and self._depth_thread.is_alive():
+                self._depth_thread.join(timeout=2.0)
+            self._depth_thread = None
 
             if self._convert_thread and self._convert_thread.is_alive():
                 self._convert_thread.join(timeout=3.0)
             self._convert_thread = None
+
+            if self._record_thread and self._record_thread.is_alive():
+                self._record_thread.join(timeout=3.0)
+            self._record_thread = None
 
             if self._mjpeg_thread and self._mjpeg_thread.is_alive():
                 self._mjpeg_thread.join(timeout=2.0)
@@ -757,6 +840,11 @@ class OakCameraService:
             self._latest_frame_data = None
             self._latest_jpeg = None
             self._drain_hires_packet_queue()
+            while not self._record_packet_queue.empty():
+                try:
+                    self._record_packet_queue.get_nowait()
+                except Empty:
+                    break
 
             logger.info("[CAPTURE] Threads stopped")
 
@@ -961,29 +1049,31 @@ class OakCameraService:
                 if is_raw_rec:
                     self._feed_lossless_recording(rec, pkt)
 
-                # When recording BGR formats (MP4/AVI): keep every packet for converter thread.
-                # When streaming only or raw NV12 already consumed pkt: drain stale preview packets.
+                # Preserve recording packets on an independent worker. The preview
+                # queue always keeps only the newest packet for low latency.
                 if rec is not None and not is_raw_rec:
                     try:
-                        self._hires_packet_queue.put(pkt, timeout=0.05)
-                    except Exception:
-                        logger.warning("[HIRES] Packet queue full (120) during recording — dropping oldest frame to avoid memory buildup")
+                        rec._capture_packets_pending = getattr(rec, "_capture_packets_pending", 0) + 1
+                        self._record_packet_queue.put_nowait((rec, pkt, int(self.current_brightness or 0)))
+                    except Full:
+                        rec._capture_packets_pending = max(0, rec._capture_packets_pending - 1)
                         try:
-                            self._hires_packet_queue.get_nowait()
-                            self._hires_packet_queue.put_nowait(pkt)
+                            old_rec, _, _ = self._record_packet_queue.get_nowait()
+                            old_rec._capture_packets_pending = max(0, getattr(old_rec, "_capture_packets_pending", 1) - 1)
+                            rec._capture_packets_pending = getattr(rec, "_capture_packets_pending", 0) + 1
+                            self._record_packet_queue.put_nowait((rec, pkt, int(self.current_brightness or 0)))
                         except Exception:
+                            rec._capture_packets_pending = max(0, getattr(rec, "_capture_packets_pending", 0) - 1)
                             pass
-                else:
-                    # Stream-only / raw-NV12 preview mode: drain stale packets, keep only this latest one
-                    while not self._hires_packet_queue.empty():
-                        try:
-                            self._hires_packet_queue.get_nowait()
-                        except Exception:
-                            break
+                while not self._hires_packet_queue.empty():
                     try:
-                        self._hires_packet_queue.put_nowait(pkt)
-                    except Exception:
-                        pass
+                        self._hires_packet_queue.get_nowait()
+                    except Empty:
+                        break
+                try:
+                    self._hires_packet_queue.put_nowait(pkt)
+                except Full:
+                    pass
 
         except Exception as e:
             if not self._hires_stop.is_set():
@@ -999,38 +1089,27 @@ class OakCameraService:
     # ---- Thread 3: Converter ----
 
     def _convert_loop(self) -> None:
-        """Pulls NV12 packets, converts to BGR (getCvFrame), stores latest for recording."""
+        """Pull NV12 packets, convert the newest frame, and update the live preview."""
         logger.info("[CONVERT] Thread running")
         frames = 0
-        record_frames = 0
         last_log = time.time()
         _first_frame_logged = False
 
         try:
             while not self._convert_stop.is_set() or not self._hires_packet_queue.empty():
-                # When recording non-raw BGR formats (MP4/AVI), process EVERY frame.
-                # When only streaming or raw NV12 (FFV1 fed directly in _hires_loop), drain to latest.
-                rec_active = self._active_recording
-                need_every_bgr = bool(rec_active is not None and not getattr(rec_active, "is_raw_nv12", False))
-                if need_every_bgr:
-                    # Recording mode: take one packet at a time (preserve every frame)
+                # Preview always converts the newest available packet. Recording
+                # conversion is handled by _record_convert_loop independently.
+                pkt = None
+                while not self._hires_packet_queue.empty():
+                    try:
+                        pkt = self._hires_packet_queue.get_nowait()
+                    except Empty:
+                        break
+                if pkt is None:
                     try:
                         pkt = self._hires_packet_queue.get(timeout=0.05)
                     except Empty:
                         continue
-                else:
-                    # Stream-only mode: drain to latest (shows most current frame)
-                    pkt = None
-                    while not self._hires_packet_queue.empty():
-                        try:
-                            pkt = self._hires_packet_queue.get_nowait()
-                        except Empty:
-                            break
-                    if pkt is None:
-                        try:
-                            pkt = self._hires_packet_queue.get(timeout=0.05)
-                        except Empty:
-                            continue
 
                 try:
                     raw_bgr = pkt.getCvFrame()
@@ -1084,14 +1163,6 @@ class OakCameraService:
                 self._latest_bgr_seq = seq_num
                 self._latest_frame_data = (display_bgr, seq_num, ts_sec)
 
-                # Feed uncompressed BGR frame directly to MP4/AVI recording FIRST so browser
-                # preview JPEG encoding never delays or drops recorded frames.
-                # (FFV1 lossless sessions receive raw NV12 directly in _hires_loop.)
-                rec = self._active_recording
-                if rec is not None and not getattr(rec, "is_raw_nv12", False):
-                    rec.add_frame(display_bgr)
-                    record_frames += 1
-
                 # When software brightness is active (b != 0), encode and push display_bgr to stream
                 # so the live preview in the browser has 100% true parity with the recording
                 if b != 0:
@@ -1118,17 +1189,83 @@ class OakCameraService:
                     logger.info(
                         f"[CONVERT] FPS: {self.current_fps:.1f} [{fps_status}] | "
                         f"recording: {self._active_recording is not None} | "
-                        f"record_frames_fed: {record_frames} | "
                         f"ae_limit_us: {self._ae_limit_us}"
                     )
                     frames = 0
-                    record_frames = 0
                     last_log = now
 
         except Exception as e:
             logger.error(f"[CONVERT] Thread error: {e}", exc_info=True)
         finally:
             logger.info("[CONVERT] Thread ended")
+
+    def _record_convert_loop(self) -> None:
+        """Convert queued recording packets without blocking the live preview."""
+        while not self._convert_stop.is_set() or not self._record_packet_queue.empty():
+            try:
+                rec, pkt, brightness = self._record_packet_queue.get(timeout=0.05)
+            except Empty:
+                continue
+            try:
+                frame = pkt.getCvFrame()
+                if brightness:
+                    frame = cv2.LUT(frame, _get_brightness_lut(brightness))
+                rec.add_frame(frame)
+            except Exception as e:
+                logger.warning(f"[RECORD] Packet conversion failed: {e}")
+            finally:
+                rec._capture_packets_pending = max(0, getattr(rec, "_capture_packets_pending", 1) - 1)
+
+    def _depth_loop(self) -> None:
+        """Drains StereoDepth queue, caches 16-bit millimeter depth & feeds recording session."""
+        logger.info("[DEPTH] Thread running")
+        while not self._depth_stop.is_set() and self._is_running:
+            if self._depth_dai_queue is None:
+                break
+            try:
+                pkt = self._depth_dai_queue.get()
+                if pkt is None:
+                    continue
+                depth_raw = pkt.getFrame()
+                if depth_raw is None:
+                    continue
+                if depth_raw.dtype != np.uint16:
+                    depth_raw = np.ascontiguousarray(depth_raw, dtype=np.uint16)
+
+                self._latest_depth_raw = depth_raw
+                self.has_depth = True
+
+                rec = self._active_recording
+                if rec is not None:
+                    cam_ts_sec = None
+                    seq_num = None
+                    try:
+                        ts = pkt.getTimestamp()
+                        cam_ts_sec = ts.total_seconds() if hasattr(ts, "total_seconds") else float(ts)
+                    except Exception:
+                        pass
+                    try:
+                        seq_num = int(pkt.getSequenceNum())
+                    except Exception:
+                        pass
+                    rec.add_depth_frame(depth_raw, cam_ts_sec=cam_ts_sec, seq_num=seq_num)
+            except Exception as e:
+                if not self._is_running or self._depth_stop.is_set():
+                    break
+                logger.debug(f"[DEPTH] Depth capture warning: {e}")
+                time.sleep(0.01)
+        logger.info("[DEPTH] Thread stopped")
+
+    def push_external_depth_frame(self, depth_raw_16: np.ndarray, cam_ts_sec: float | None = None, seq_num: int | None = None) -> None:
+        """Allows injecting 16-bit depth frames (e.g. from an external sensor or mock depth generator)."""
+        if depth_raw_16 is not None:
+            if depth_raw_16.dtype != np.uint16:
+                depth_raw_16 = np.ascontiguousarray(depth_raw_16, dtype=np.uint16)
+            self._latest_depth_raw = depth_raw_16
+            self.has_depth = True
+            rec = self._active_recording
+            if rec is not None:
+                rec.add_depth_frame(depth_raw_16, cam_ts_sec=cam_ts_sec, seq_num=seq_num)
 
     # ==================== Stream Queue ====================
 
@@ -1680,6 +1817,7 @@ class OakCameraService:
         camera_id: int | None = None,
         camera_name: str | None = None,
         clip_duration_minutes: int | None = None,
+        record_depth: bool | None = None,
     ) -> str:
         from app.services.recording_service import start_recording as _start
 
@@ -1730,6 +1868,9 @@ class OakCameraService:
 
         cname = cname or f"Camera_{cid}"
         clip_mins = clip_mins or 1
+        depth_active = bool(
+            record_depth if record_depth is not None else getattr(self, "has_depth", False) or getattr(self, "_latest_depth_raw", None) is not None
+        )
 
         rec_path = _start(
             session_id=session_id,
@@ -1742,6 +1883,7 @@ class OakCameraService:
             camera_id=cid,
             camera_name=cname,
             clip_duration_minutes=clip_mins,
+            record_depth=depth_active,
         )
         from app.services.recording_service import active_recordings
         self._active_recording = active_recordings.get(session_id)
@@ -1772,6 +1914,14 @@ class OakCameraService:
         )
         if self._active_recording:
             logger.info(f"[RECORD] Queue size before stop: {self._active_recording.frame_queue.qsize()}")
+            # Finish packet-to-BGR conversion before stopping the encoder worker,
+            # otherwise the last queued camera frames would be discarded.
+            while (
+                getattr(self._active_recording, "_capture_packets_pending", 0) > 0
+                and self._record_thread is not None
+                and self._record_thread.is_alive()
+            ):
+                time.sleep(0.005)
 
         # Stop the session first (flushes queue, finalizes clips, renames temp files).
         # Only clear _active_recording AFTER _stop() so the convert loop keeps

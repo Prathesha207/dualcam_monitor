@@ -276,6 +276,83 @@ async def snapshot_by_id(camera_id: int):
     return await snapshot(camera_id=camera_id)
 
 
+# ==================== Depth Streaming & Telemetry ====================
+
+@router.get("/depth_stream")
+async def depth_stream(request: Request, camera_id: Optional[int] = None):
+    """Real-time MJPEG stream of colorized depth (COLORMAP_TURBO)."""
+    inst = oak_camera_service.get_instance(camera_id)
+
+    async def depth_generator():
+        from app.services.recording_service import _DEPTH_LUT
+        while True:
+            if await request.is_disconnected():
+                break
+            depth_raw = getattr(inst, "_latest_depth_raw", None)
+            if depth_raw is not None:
+                depth_scaled = cv2.LUT(depth_raw, _DEPTH_LUT)
+                depth_color = cv2.applyColorMap(depth_scaled, cv2.COLORMAP_TURBO)
+                depth_color[depth_raw == 0] = [0, 0, 0]
+                ret, buf = cv2.imencode(".jpg", depth_color, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                if ret:
+                    yield (
+                        b"--frame\r\n"
+                        b"Content-Type: image/jpeg\r\n\r\n"
+                        + buf.tobytes()
+                        + b"\r\n"
+                    )
+            await asyncio.sleep(0.033)
+
+    return StreamingResponse(
+        depth_generator(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+    )
+
+
+@router.get("/depth_stream/{camera_id}")
+async def depth_stream_by_id(request: Request, camera_id: int):
+    return await depth_stream(request, camera_id=camera_id)
+
+
+@router.get("/depth_stats")
+async def depth_stats(camera_id: Optional[int] = None):
+    """Query current depth measurement stats (center distance Z in mm, min, max)."""
+    inst = oak_camera_service.get_instance(camera_id)
+    depth_raw = getattr(inst, "_latest_depth_raw", None)
+    if depth_raw is None:
+        return {
+            "has_depth": False,
+            "camera_id": camera_id or 1,
+            "center_z_mm": None,
+            "min_z_mm": None,
+            "max_z_mm": None,
+            "mean_z_mm": None,
+        }
+    h, w = depth_raw.shape
+    center_val = int(depth_raw[h // 2, w // 2])
+    valid = depth_raw > 0
+    min_val = int(np.min(depth_raw[valid])) if np.any(valid) else 0
+    max_val = int(np.max(depth_raw[valid])) if np.any(valid) else 0
+    mean_val = round(float(np.mean(depth_raw[valid])), 1) if np.any(valid) else 0.0
+
+    return {
+        "has_depth": True,
+        "camera_id": camera_id or 1,
+        "resolution": f"{w}x{h}",
+        "center_z_mm": center_val,
+        "center_z_meters": round(center_val / 1000.0, 3) if center_val > 0 else None,
+        "min_z_mm": min_val,
+        "max_z_mm": max_val,
+        "mean_z_mm": mean_val,
+        "z_unit": "millimeter",
+    }
+
+
+@router.get("/depth_stats/{camera_id}")
+async def depth_stats_by_id(camera_id: int):
+    return await depth_stats(camera_id=camera_id)
+
+
 # ==================== Health & Devices ====================
 
 @router.get("/health")

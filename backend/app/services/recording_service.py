@@ -33,6 +33,10 @@ _NVENC_LOCK = threading.Lock()
 LOSSLESS_BAKE_BRIGHTNESS = True
 _LUMA_LUT_CACHE: dict[int, np.ndarray] = {}
 
+# Precomputed 65536-entry LUT: maps 0..8000mm (0..8m) linearly to 0..255 uint8 for fast depth colormapping
+_DEPTH_LUT = np.clip((np.arange(65536, dtype=np.float32) / 8000.0) * 255.0, 0.0, 255.0).astype(np.uint8)
+_DEPTH_LUT[0] = 0
+
 
 def _get_luma_lut(brightness: int) -> np.ndarray:
     b = max(-50, min(50, int(brightness)))
@@ -86,6 +90,9 @@ class RecordingSession:
         camera_id: int | None = None,
         camera_name: str | None = None,
         clip_duration_minutes: int | None = 1,
+        record_depth: bool = False,
+        depth_width: int | None = None,
+        depth_height: int | None = None,
     ):
         now = datetime.now()
         if not root_path:
@@ -153,6 +160,26 @@ class RecordingSession:
         self.height = height
         self.is_raw_nv12 = (fmt == "FFV1")
         self._saw_nv12 = False
+
+        # Depth recording configuration and state
+        self.record_depth = bool(record_depth)
+        self.depth_width = int(depth_width or width)
+        self.depth_height = int(depth_height or height)
+        self._saw_depth = False
+        self._depth_lock = threading.Lock()
+        self._latest_depth_raw: np.ndarray | None = None
+        self._depth_raw_container = None
+        self._depth_raw_stream = None
+        self._depth_prev_container = None
+        self._depth_prev_stream = None
+        self._temp_depth_raw_path = None
+        self._temp_depth_prev_path = None
+        self._last_encoded_depth_raw_pts = -1
+        self._last_mux_depth_raw_dts = -1
+        self._last_encoded_depth_prev_pts = -1
+        self._last_mux_depth_prev_dts = -1
+        self._current_clip_depth_frames = 0
+        self._total_depth_frames = 0
 
         # Per-session reformatter avoids cross-camera SwsContext races
         self._reformatter = VideoReformatter()
@@ -301,6 +328,79 @@ class RecordingSession:
                 self._container = None
                 self._stream = None
 
+        if self.record_depth or self._saw_depth:
+            self._open_depth_containers(start_pts_ms)
+
+    def _open_depth_containers(self, start_pts_ms: int):
+        self._current_clip_depth_frames = 0
+        self._last_encoded_depth_raw_pts = -1
+        self._last_mux_depth_raw_dts = -1
+        self._last_encoded_depth_prev_pts = -1
+        self._last_mux_depth_prev_dts = -1
+
+        # 1. 16-bit Lossless Raw Depth Container (FFV1 gray16le in .mkv — preserving exact mm Z-values)
+        self._temp_depth_raw_path = os.path.join(
+            self.session_dir, f"clip{self._current_clip_index:03d}_depth_raw_temp.mkv"
+        )
+        try:
+            self._depth_raw_container = av.open(self._temp_depth_raw_path, mode="w")
+            self._depth_raw_stream = self._depth_raw_container.add_stream("ffv1", rate=1000)
+            self._depth_raw_stream.width = self.depth_width
+            self._depth_raw_stream.height = self.depth_height
+            self._depth_raw_stream.pix_fmt = "gray16le"
+            self._depth_raw_stream.time_base = Fraction(1, 1000)
+            self._depth_raw_stream.codec_context.time_base = Fraction(1, 1000)
+            self._depth_raw_stream.options = {"level": "3", "coder": "1", "context": "1", "slicecrc": "1", "slices": "16"}
+            try:
+                self._depth_raw_stream.codec_context.thread_type = "SLICE"
+                self._depth_raw_stream.codec_context.thread_count = min(16, os.cpu_count() or 4)
+            except Exception:
+                pass
+            logger.info(f"[RECORD] Opened 16-bit lossless raw depth container at {self._temp_depth_raw_path}")
+        except Exception as ex_dr:
+            logger.warning(f"[RECORD] Failed to open depth raw container with slice options: {ex_dr}. Retrying basic FFV1...")
+            try:
+                self._depth_raw_container = av.open(self._temp_depth_raw_path, mode="w")
+                self._depth_raw_stream = self._depth_raw_container.add_stream("ffv1", rate=1000)
+                self._depth_raw_stream.width = self.depth_width
+                self._depth_raw_stream.height = self.depth_height
+                self._depth_raw_stream.pix_fmt = "gray16le"
+                self._depth_raw_stream.time_base = Fraction(1, 1000)
+                self._depth_raw_stream.codec_context.time_base = Fraction(1, 1000)
+            except Exception as ex_dr2:
+                logger.error(f"[RECORD] Failed to open depth raw container: {ex_dr2}", exc_info=True)
+                self._depth_raw_container = None
+                self._depth_raw_stream = None
+
+        # 2. Visual Colormapped Depth Preview (matching chosen container format: MP4 / AVI / MKV)
+        self._temp_depth_prev_path = os.path.join(
+            self.session_dir, f"clip{self._current_clip_index:03d}_depth_preview_temp{self.ext}"
+        )
+        container_options = {"movflags": "frag_keyframe+empty_moov"} if self.fmt == "MP4" else {}
+        try:
+            self._depth_prev_container = av.open(self._temp_depth_prev_path, mode="w", options=container_options)
+            self._depth_prev_stream = self._depth_prev_container.add_stream(self.codec_name, rate=1000)
+            self._depth_prev_stream.width = self.depth_width
+            self._depth_prev_stream.height = self.depth_height
+            self._depth_prev_stream.pix_fmt = self.pix_fmt
+            self._depth_prev_stream.time_base = Fraction(1, 1000)
+            self._depth_prev_stream.codec_context.time_base = Fraction(1, 1000)
+            if self.codec_options:
+                self._depth_prev_stream.options = self.codec_options
+            if self.fmt == "MP4":
+                try:
+                    self._depth_prev_stream.codec_context.colorspace = Colorspace.ITU709
+                    self._depth_prev_stream.codec_context.color_primaries = ColorPrimaries.BT709
+                    self._depth_prev_stream.codec_context.color_trc = ColorTrc.BT709
+                    self._depth_prev_stream.codec_context.color_range = ColorRange.JPEG
+                except Exception:
+                    pass
+            logger.info(f"[RECORD] Opened colormapped depth preview container at {self._temp_depth_prev_path}")
+        except Exception as ex_dp:
+            logger.warning(f"[RECORD] Failed to open depth preview container: {ex_dp}")
+            self._depth_prev_container = None
+            self._depth_prev_stream = None
+
     def _close_clip(self, end_pts_ms: int):
         if not self._container or not self._stream:
             return
@@ -338,6 +438,68 @@ class RecordingSession:
                     logger.error(f"[RECORD] Could not rename temp clip to final name: {err}")
                     final_path = self._temp_clip_path
 
+        # Close & finalize 16-bit Lossless Raw Depth Container
+        final_depth_raw_path = None
+        if self._depth_raw_container and self._depth_raw_stream:
+            try:
+                for pkt in self._depth_raw_stream.encode():
+                    if pkt.dts is not None:
+                        if pkt.dts <= self._last_mux_depth_raw_dts:
+                            pkt.dts = self._last_mux_depth_raw_dts + 1
+                        self._last_mux_depth_raw_dts = pkt.dts
+                    if pkt.pts is not None and pkt.dts is not None and pkt.pts < pkt.dts:
+                        pkt.pts = pkt.dts
+                    self._depth_raw_container.mux(pkt)
+                self._depth_raw_container.close()
+            except Exception as e_dr:
+                logger.warning(f"[RECORD] Error closing depth raw container for clip {self._current_clip_index}: {e_dr}")
+            finally:
+                self._depth_raw_container = None
+                self._depth_raw_stream = None
+
+            if self._temp_depth_raw_path and os.path.exists(self._temp_depth_raw_path):
+                final_depth_raw_filename = f"clip{self._current_clip_index:03d}_depth_raw_{mins:02d}m{secs:02d}s.mkv"
+                final_depth_raw_path = os.path.join(self.session_dir, final_depth_raw_filename)
+                try:
+                    os.replace(self._temp_depth_raw_path, final_depth_raw_path)
+                except Exception:
+                    try:
+                        import shutil
+                        shutil.move(self._temp_depth_raw_path, final_depth_raw_path)
+                    except Exception:
+                        final_depth_raw_path = self._temp_depth_raw_path
+
+        # Close & finalize Depth Preview Container
+        final_depth_prev_path = None
+        if self._depth_prev_container and self._depth_prev_stream:
+            try:
+                for pkt in self._depth_prev_stream.encode():
+                    if pkt.dts is not None:
+                        if pkt.dts <= self._last_mux_depth_prev_dts:
+                            pkt.dts = self._last_mux_depth_prev_dts + 1
+                        self._last_mux_depth_prev_dts = pkt.dts
+                    if pkt.pts is not None and pkt.dts is not None and pkt.pts < pkt.dts:
+                        pkt.pts = pkt.dts
+                    self._depth_prev_container.mux(pkt)
+                self._depth_prev_container.close()
+            except Exception as e_dp:
+                logger.warning(f"[RECORD] Error closing depth preview container for clip {self._current_clip_index}: {e_dp}")
+            finally:
+                self._depth_prev_container = None
+                self._depth_prev_stream = None
+
+            if self._temp_depth_prev_path and os.path.exists(self._temp_depth_prev_path):
+                final_depth_prev_filename = f"clip{self._current_clip_index:03d}_depth_preview_{mins:02d}m{secs:02d}s{self.ext}"
+                final_depth_prev_path = os.path.join(self.session_dir, final_depth_prev_filename)
+                try:
+                    os.replace(self._temp_depth_prev_path, final_depth_prev_path)
+                except Exception:
+                    try:
+                        import shutil
+                        shutil.move(self._temp_depth_prev_path, final_depth_prev_path)
+                    except Exception:
+                        final_depth_prev_path = self._temp_depth_prev_path
+
         clip_record = {
             "index": self._current_clip_index,
             "filename": os.path.basename(final_path),
@@ -345,6 +507,15 @@ class RecordingSession:
             "duration_seconds": round(duration_sec, 2),
             "frames": self._current_clip_frames,
         }
+        if final_depth_raw_path:
+            clip_record["depth_raw_filename"] = os.path.basename(final_depth_raw_path)
+            clip_record["depth_raw_path"] = final_depth_raw_path
+            clip_record["depth_raw_frames"] = self._current_clip_depth_frames
+            clip_record["z_unit"] = "millimeter (uint16 raw 16-bit)"
+        if final_depth_prev_path:
+            clip_record["depth_preview_filename"] = os.path.basename(final_depth_prev_path)
+            clip_record["depth_preview_path"] = final_depth_prev_path
+
         self.clips.append(clip_record)
         self._write_session_json(status="recording")
         logger.info(
@@ -354,6 +525,7 @@ class RecordingSession:
 
     def _write_session_json(self, status: str = "recording"):
         total_dur = time.monotonic() - self._start_mono
+        has_depth = bool(self.record_depth or self._saw_depth or self._total_depth_frames > 0)
         manifest = {
             "session_id": self.session_id,
             "camera_id": self.camera_id,
@@ -371,6 +543,11 @@ class RecordingSession:
             "encoder_backlog_drops": self._dropped_frames,
             "camera_frames_missing": self._camera_frames_missing,
             "lossless_mode": "raw_nv12" if (self.is_raw_nv12 and self._saw_nv12) else ("bgr_lossless" if self.fmt == "FFV1" else "standard"),
+            "has_depth": has_depth,
+            "depth_resolution": f"{self.depth_width}x{self.depth_height}" if has_depth else None,
+            "depth_format": f"16-bit Lossless FFV1 (gray16le) + Turbo Preview ({self.fmt})" if has_depth else None,
+            "depth_z_unit": "millimeter (uint16 raw 16-bit)" if has_depth else None,
+            "total_depth_frames": self._total_depth_frames if has_depth else 0,
             "settings_history": list(self.settings_history),
             "clips": [
                 {
@@ -378,6 +555,9 @@ class RecordingSession:
                     "filename": c["filename"],
                     "duration_seconds": c["duration_seconds"],
                     "frames": c["frames"],
+                    **({"depth_raw_filename": c["depth_raw_filename"]} if "depth_raw_filename" in c else {}),
+                    **({"depth_raw_frames": c.get("depth_raw_frames", c["frames"])} if "depth_raw_filename" in c else {}),
+                    **({"depth_preview_filename": c["depth_preview_filename"]} if "depth_preview_filename" in c else {}),
                 }
                 for c in self.clips
             ],
@@ -452,21 +632,96 @@ class RecordingSession:
                         rel_pts = self._last_encoded_pts + 1
                     self._last_encoded_pts = rel_pts
 
-                    frame = self._build_video_frame(payload)
-                    frame.pts = rel_pts
-                    frame.time_base = Fraction(1, 1000)
+                    color_payload = None
+                    depth_uint16 = None
+                    if isinstance(payload, tuple) and len(payload) == 3 and payload[0] == "dual":
+                        color_payload = payload[1]
+                        depth_uint16 = payload[2]
+                    elif isinstance(payload, tuple) and len(payload) == 2 and payload[0] == "depth_only":
+                        depth_uint16 = payload[1]
+                    else:
+                        color_payload = payload
 
-                    for pkt in self._stream.encode(frame):
-                        if pkt.dts is not None:
-                            if pkt.dts <= self._last_mux_dts:
-                                pkt.dts = self._last_mux_dts + 1
-                            self._last_mux_dts = pkt.dts
-                        if pkt.pts is not None and pkt.dts is not None and pkt.pts < pkt.dts:
-                            pkt.pts = pkt.dts
-                        self._container.mux(pkt)
+                    # 1. Encode normal color video frame
+                    if color_payload is not None and self._container and self._stream:
+                        frame = self._build_video_frame(color_payload)
+                        frame.pts = rel_pts
+                        frame.time_base = Fraction(1, 1000)
 
-                    self._total_frames += 1
-                    self._current_clip_frames += 1
+                        for pkt in self._stream.encode(frame):
+                            if pkt.dts is not None:
+                                if pkt.dts <= self._last_mux_dts:
+                                    pkt.dts = self._last_mux_dts + 1
+                                self._last_mux_dts = pkt.dts
+                            if pkt.pts is not None and pkt.dts is not None and pkt.pts < pkt.dts:
+                                pkt.pts = pkt.dts
+                            self._container.mux(pkt)
+
+                        self._total_frames += 1
+                        self._current_clip_frames += 1
+
+                    # 2. Encode depth video frames (Lossless 16-bit raw + Turbo colormap preview)
+                    if depth_uint16 is not None:
+                        if not self._depth_raw_container and (self.record_depth or self._saw_depth):
+                            self._open_depth_containers(self._current_clip_start_pts_ms)
+
+                        # 2a. Lossless Raw Depth Frame (FFV1 gray16le — bit-exact millimeters Z preserved)
+                        if self._depth_raw_container and self._depth_raw_stream is not None:
+                            rel_pts_raw = rel_pts
+                            if rel_pts_raw <= self._last_encoded_depth_raw_pts:
+                                rel_pts_raw = self._last_encoded_depth_raw_pts + 1
+                            self._last_encoded_depth_raw_pts = rel_pts_raw
+
+                            f_raw = av.VideoFrame.from_ndarray(depth_uint16, format="gray16le")
+                            f_raw.pts = rel_pts_raw
+                            f_raw.time_base = Fraction(1, 1000)
+                            for pkt in self._depth_raw_stream.encode(f_raw):
+                                if pkt.dts is not None:
+                                    if pkt.dts <= self._last_mux_depth_raw_dts:
+                                        pkt.dts = self._last_mux_depth_raw_dts + 1
+                                    self._last_mux_depth_raw_dts = pkt.dts
+                                if pkt.pts is not None and pkt.dts is not None and pkt.pts < pkt.dts:
+                                    pkt.pts = pkt.dts
+                                self._depth_raw_container.mux(pkt)
+
+                        # 2b. Visual Turbo Colormap Depth Preview (matching normal video format)
+                        if self._depth_prev_container and self._depth_prev_stream is not None:
+                            rel_pts_prev = rel_pts
+                            if rel_pts_prev <= self._last_encoded_depth_prev_pts:
+                                rel_pts_prev = self._last_encoded_depth_prev_pts + 1
+                            self._last_encoded_depth_prev_pts = rel_pts_prev
+
+                            depth_scaled = cv2.LUT(depth_uint16, _DEPTH_LUT)
+                            depth_color = cv2.applyColorMap(depth_scaled, cv2.COLORMAP_TURBO)
+                            depth_color[depth_uint16 == 0] = [0, 0, 0]
+
+                            f_prev = av.VideoFrame.from_ndarray(depth_color, format="bgr24")
+                            if self.fmt == "MP4":
+                                f_prev = self._reformatter.reformat(
+                                    f_prev,
+                                    format=self._depth_prev_stream.pix_fmt,
+                                    src_color_range="JPEG",
+                                    dst_color_range="JPEG",
+                                    src_colorspace="ITU709",
+                                    dst_colorspace="ITU709",
+                                )
+                                f_prev.color_range = ColorRange.JPEG
+                            elif f_prev.format.name != self._depth_prev_stream.pix_fmt:
+                                f_prev = self._reformatter.reformat(f_prev, format=self._depth_prev_stream.pix_fmt)
+
+                            f_prev.pts = rel_pts_prev
+                            f_prev.time_base = Fraction(1, 1000)
+                            for pkt in self._depth_prev_stream.encode(f_prev):
+                                if pkt.dts is not None:
+                                    if pkt.dts <= self._last_mux_depth_prev_dts:
+                                        pkt.dts = self._last_mux_depth_prev_dts + 1
+                                    self._last_mux_depth_prev_dts = pkt.dts
+                                if pkt.pts is not None and pkt.dts is not None and pkt.pts < pkt.dts:
+                                    pkt.pts = pkt.dts
+                                self._depth_prev_container.mux(pkt)
+
+                        self._current_clip_depth_frames += 1
+                        self._total_depth_frames += 1
 
                 except Exception as e:
                     logger.warning(f"[RECORD] Frame encode warning: {e}")
@@ -501,6 +756,42 @@ class RecordingSession:
             except Exception:
                 pass
 
+    def add_depth_frame(
+        self,
+        depth_raw_16: np.ndarray,
+        cam_ts_sec: float | None = None,
+        seq_num: int | None = None,
+    ) -> None:
+        """Add raw 16-bit millimeter depth frame (uint16, 0..65535mm)."""
+        if not self.is_running or depth_raw_16 is None:
+            return
+        if depth_raw_16.dtype != np.uint16:
+            depth_raw_16 = np.ascontiguousarray(depth_raw_16, dtype=np.uint16)
+        else:
+            depth_raw_16 = np.ascontiguousarray(depth_raw_16)
+
+        with self._depth_lock:
+            self._saw_depth = True
+            self.record_depth = True
+            self.depth_height, self.depth_width = depth_raw_16.shape[:2]
+            self._latest_depth_raw = depth_raw_16.copy()
+
+    def add_dual_frame(
+        self,
+        color_frame,
+        depth_raw_16: np.ndarray,
+        cam_ts_sec: float | None = None,
+        seq_num: int | None = None,
+    ) -> None:
+        """Add synchronized color + raw 16-bit depth frame pair directly."""
+        if not self.is_running:
+            return
+        if depth_raw_16 is not None:
+            self.add_depth_frame(depth_raw_16, cam_ts_sec=cam_ts_sec, seq_num=seq_num)
+
+        if color_frame is not None:
+            self.add_frame(color_frame)
+
     def add_nv12_frame(
         self,
         y_plane: np.ndarray,
@@ -531,7 +822,15 @@ class RecordingSession:
             pts_ms = self._last_pts_ms + 1
         self._last_pts_ms = pts_ms
 
-        self._enqueue_payload(("nv12", y_plane, uv_plane, int(brightness or 0)), pts_ms)
+        color_payload = ("nv12", y_plane, uv_plane, int(brightness or 0))
+        with self._depth_lock:
+            d_frame = self._latest_depth_raw
+            if d_frame is not None and (self.record_depth or self._saw_depth):
+                payload = ("dual", color_payload, d_frame)
+            else:
+                payload = color_payload
+
+        self._enqueue_payload(payload, pts_ms)
 
     def add_frame(self, bgr):
         """Add uncompressed BGR frame directly to the recording queue."""
@@ -547,7 +846,15 @@ class RecordingSession:
 
         # Own the queued pixels. This prevents a producer reusing or mutating its
         # image buffer before the background encoder has consumed the frame.
-        self._enqueue_payload(np.ascontiguousarray(bgr).copy(), pts_ms)
+        color_payload = np.ascontiguousarray(bgr).copy()
+        with self._depth_lock:
+            d_frame = self._latest_depth_raw
+            if d_frame is not None and (self.record_depth or self._saw_depth):
+                payload = ("dual", color_payload, d_frame)
+            else:
+                payload = color_payload
+
+        self._enqueue_payload(payload, pts_ms)
 
     def add_jpeg_frame(self, jpeg_bytes: bytes) -> None:
         """Compatibility shim — decodes JPEG if a caller passes JPEG bytes."""
@@ -599,6 +906,8 @@ class RecordingSession:
             "filename": last_filename,
             "duration": round(duration, 2),
             "frames_written": self._total_frames,
+            "depth_frames_written": self._total_depth_frames,
+            "has_depth": bool(self._total_depth_frames > 0 or self._saw_depth),
             "dropped_frames": self._dropped_frames,
             "camera_frames_missing": self._camera_frames_missing,
             "format": self.fmt,
@@ -632,8 +941,11 @@ def start_recording(
     camera_id: int | None = None,
     camera_name: str | None = None,
     clip_duration_minutes: int | None = 1,
+    record_depth: bool = False,
+    depth_width: int | None = None,
+    depth_height: int | None = None,
 ) -> str:
-    logger.info(f"[RECORD] Creating session: {session_id} | format={recording_format} | camera={camera_name} (ID: {camera_id})")
+    logger.info(f"[RECORD] Creating session: {session_id} | format={recording_format} | record_depth={record_depth} | camera={camera_name} (ID: {camera_id})")
     if session_id in active_recordings:
         logger.warning("[RECORD] Session already exists — returning existing session directory")
         return active_recordings[session_id].session_dir
@@ -650,6 +962,9 @@ def start_recording(
         camera_id=camera_id,
         camera_name=camera_name,
         clip_duration_minutes=clip_duration_minutes,
+        record_depth=record_depth,
+        depth_width=depth_width,
+        depth_height=depth_height,
     )
 
     if not session.is_running:
@@ -665,6 +980,12 @@ def write_frame(session_id: str, frame) -> None:
     session = active_recordings.get(session_id)
     if session:
         session.add_frame(frame)
+
+
+def write_depth_frame(session_id: str, depth_raw_16: np.ndarray) -> None:
+    session = active_recordings.get(session_id)
+    if session:
+        session.add_depth_frame(depth_raw_16)
 
 
 def stop_recording(session_id: str) -> dict:

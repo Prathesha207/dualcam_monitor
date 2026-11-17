@@ -106,6 +106,34 @@ Visit **`http://localhost:5173`** in your browser.
 
 ---
 
+## 📹 Simultaneous Color + 16-Bit Depth Recording
+
+When recording is started with depth enabled, all synchronized tracks are stored directly in the **exact same session folder**:
+
+| File | Codec / Format | Purpose | Description |
+| :--- | :--- | :--- | :--- |
+| **`clip001_01m00s.mp4`** *(or `.avi` / `.mkv`)* | H.264 / MJPEG / FFV1 | Normal Color Video | Full-resolution RGB video in the format you selected. |
+| **`clip001_depth_raw_01m00s.mkv`** | FFV1 (`gray16le`) | **Scientific 16-Bit Depth** | **100% mathematically lossless**. Every pixel is the exact distance $Z$ in millimeters ($0$ to $65,535\text{ mm}$). Zero rounding or compression error. |
+| **`clip001_depth_preview_01m00s.mp4`** *(or `.avi` / `.mkv`)* | Matching format with Turbo Colormap | **Visual Preview** | Colorized depth animation viewable directly in Windows Media Player, VLC, or web browser. |
+| **`session.json`** | JSON | Manifest | Lists all clip filenames, frame counts, durations, and metadata. |
+
+### How to Read Exact $Z$ Distance from Recorded Depth Video (Python):
+```python
+import av
+import numpy as np
+
+container = av.open("clip001_depth_raw_01m00s.mkv")
+for frame in container.decode(video=0):
+    depth_mm = frame.to_ndarray()  # dtype: uint16, shape: (H, W)
+    
+    # Distance in millimeters at pixel (x=320, y=240):
+    z_mm = depth_mm[240, 320]
+    z_meters = z_mm / 1000.0
+    print(f"Object distance: {z_mm} mm ({z_meters:.3f} meters)")
+```
+
+---
+
 ## 📷 Camera Connection & Hardware Notes
 
 1. **USB 3.0 Requirement**:
@@ -139,3 +167,4 @@ To package as an installable desktop application:
 - **Python missing or version error**:
   - Python 3.10, 3.11, or 3.12 64-bit is required.
   - Make sure "Add Python to environment variables" was selected during Python installation.
+

@@ -8,6 +8,7 @@ class StartRecordingRequest(BaseModel):
     recording_format: Optional[str] = None
     camera_id: Optional[int] = None
     clip_duration_minutes: Optional[int] = None
+    record_depth: Optional[bool] = None
 
 
 # ================= FRAME (optional / keep if needed) =================
