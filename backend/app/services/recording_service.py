@@ -139,7 +139,7 @@ class RecordingSession:
             codec_name = "ffv1"
             pix_fmt    = "yuv420p"
             ext        = ".mkv"
-            options    = {"level": "3", "coder": "1", "context": "1", "slicecrc": "1", "slices": "16"}
+            options    = {"level": "3", "coder": "0", "slices": "8", "slicecrc": "0"}
         else:  # Default: MP4 (H.264)
             fmt        = "MP4"
             pix_fmt    = "yuv420p"
@@ -149,7 +149,7 @@ class RecordingSession:
                 options    = {"preset": "fast", "cq": "18"}
             else:
                 codec_name = "libx264"
-                options    = {"preset": "veryfast", "crf": "17"}
+                options    = {"preset": "ultrafast", "tune": "zerolatency", "crf": "19"}
 
         self.fmt = fmt
         self.codec_name = codec_name
@@ -302,7 +302,7 @@ class RecordingSession:
             elif self.fmt == "MP4" and self.codec_name != "libx264":
                 logger.warning(f"[RECORD] Failed to open clip container with {self.codec_name}: {e}. Retrying with libx264...")
                 self.codec_name = "libx264"
-                self.codec_options = {"preset": "veryfast", "crf": "17"}
+                self.codec_options = {"preset": "ultrafast", "tune": "zerolatency", "crf": "19"}
                 try:
                     self._container = av.open(self._temp_clip_path, mode="w", options=container_options)
                     self._stream = self._container.add_stream(self.codec_name, rate=1000)
@@ -352,7 +352,7 @@ class RecordingSession:
             self._depth_raw_stream.pix_fmt = "gray16le"
             self._depth_raw_stream.time_base = Fraction(1, 1000)
             self._depth_raw_stream.codec_context.time_base = Fraction(1, 1000)
-            self._depth_raw_stream.options = {"level": "3", "coder": "1", "context": "1", "slicecrc": "1", "slices": "16"}
+            self._depth_raw_stream.options = {"level": "3", "coder": "0", "slices": "8", "slicecrc": "0"}
             try:
                 self._depth_raw_stream.codec_context.thread_type = "SLICE"
                 self._depth_raw_stream.codec_context.thread_count = min(16, os.cpu_count() or 4)

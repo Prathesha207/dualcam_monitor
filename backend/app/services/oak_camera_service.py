@@ -664,7 +664,7 @@ class OakCameraService:
                     mono_left.out.link(stereo.left)
                     mono_right.out.link(stereo.right)
 
-                    self._depth_dai_queue = stereo.depth.createOutputQueue(maxSize=10, blocking=False)
+                    self._depth_dai_queue = stereo.depth.createOutputQueue(maxSize=4, blocking=False)
                     self.has_depth = True
                     logger.info("[PIPELINE] Node 3: StereoDepth configured successfully (aligned to CAM_A)")
                 except Exception as stereo_err:
@@ -1302,7 +1302,7 @@ class OakCameraService:
             self._server_loop = asyncio.get_running_loop()
         except RuntimeError:
             pass
-        q: asyncio.Queue = asyncio.Queue(maxsize=4)
+        q: asyncio.Queue = asyncio.Queue(maxsize=2)
         self._stream_subscribers.add(q)
         self._stream_queue = q
         logger.info(f"[STREAM] Client subscribed — active subscribers: {len(self._stream_subscribers)}")

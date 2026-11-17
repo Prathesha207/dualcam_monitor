@@ -171,9 +171,10 @@ async def _serve_mjpeg(request: Request, camera_id: Optional[int] = None, db: Se
 
         try:
             while True:
-                if await request.is_disconnected():
-                    logger.info(f"[STREAM] Client disconnected (cam {camera_id}) — frames sent: {frames_sent}")
-                    break
+                if frames_sent % 30 == 0:
+                    if await request.is_disconnected():
+                        logger.info(f"[STREAM] Client disconnected (cam {camera_id}) — frames sent: {frames_sent}")
+                        break
 
                 if not inst._is_streaming or not inst._is_running or not inst.is_connected:
                     logger.info(f"[STREAM] Stream stopped or camera disconnected (cam {camera_id})")
@@ -197,6 +198,13 @@ async def _serve_mjpeg(request: Request, camera_id: Optional[int] = None, db: Se
 
                 if jpeg is None:
                     break
+
+                # Discard any buffered backlog frames to guarantee real-time zero latency
+                while not client_queue.empty():
+                    try:
+                        jpeg = client_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
 
                 yield (
                     b"--frame\r\n"
