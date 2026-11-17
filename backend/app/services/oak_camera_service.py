@@ -56,6 +56,15 @@ def _extract_device_mxid(device_or_info) -> str:
                 return val
         except Exception:
             pass
+    # DeviceInfo implementations differ across DepthAI releases.  Some expose
+    # the identifier as a property rather than a getMxId() method.
+    for attr in ("mxid", "mxId", "device_id", "deviceId"):
+        try:
+            val = str(getattr(device_or_info, attr, "") or "").strip()
+            if val:
+                return val
+        except Exception:
+            pass
     val = str(getattr(device_or_info, "deviceId", "") or "").strip()
     if val:
         return val
@@ -187,6 +196,8 @@ class OakCameraService:
 
         # ---- Recording ----
         self._active_recording = None
+        self._completed_recordings: dict[str, dict] = {}
+        self._recording_stop_lock = threading.Lock()
 
         # ---- Auto-calibration monitor ----
         self._monitor_last_calib_time: float = 0.0
@@ -1909,8 +1920,15 @@ class OakCameraService:
 
         cname = cname or f"Camera_{cid}"
         clip_mins = clip_mins or 1
+        # If the caller did not explicitly disable depth, keep it enabled when
+        # the pipeline has a stereo queue.  Previously this was inferred only
+        # from a frame that had already arrived, so a recording started before
+        # the first depth packet silently became RGB-only.
         depth_active = bool(
-            record_depth if record_depth is not None else getattr(self, "has_depth", False) or getattr(self, "_latest_depth_raw", None) is not None
+            record_depth is not False
+            and (record_depth is True or getattr(self, "has_depth", False)
+                 or getattr(self, "_depth_dai_queue", None) is not None
+                 or getattr(self, "_latest_depth_raw", None) is not None)
         )
 
         rec_path = _start(
@@ -2006,7 +2024,17 @@ class OakCameraService:
         # Stop the session first (flushes queue, finalizes clips, renames temp files).
         # Only clear _active_recording AFTER _stop() so the convert loop keeps
         # feeding frames until the worker thread has drained and closed the file.
-        result = _stop(session_id)
+        # Serialize duplicate stop requests. The second request waits for the
+        # first encoder flush, then receives the cached finalized result.
+        with self._recording_stop_lock:
+            result = _stop(session_id)
+            if not result:
+                # A browser can issue stop twice while the first request is
+                # still finalizing. Return the completed result instead of
+                # turning the harmless duplicate into a misleading 404.
+                result = self._completed_recordings.get(session_id, {})
+            if result:
+                self._completed_recordings[session_id] = result
         self._active_recording = None
         logger.info(f"[RECORD] Recording stopped and session cleared → {result}")
 
@@ -2255,6 +2283,10 @@ class OakCameraService:
             "mjpeg_thread": bool(self._mjpeg_thread and self._mjpeg_thread.is_alive() and is_hardware_connected),
             "hires_thread": bool(self._hires_thread and self._hires_thread.is_alive() and is_hardware_connected),
             "convert_thread": bool(self._convert_thread and self._convert_thread.is_alive() and is_hardware_connected),
+            "record_thread": bool(self._record_thread and self._record_thread.is_alive() and is_hardware_connected),
+            "depth_thread": bool(self._depth_thread and self._depth_thread.is_alive() and is_hardware_connected),
+            "depth_available": bool(self.has_depth and self._depth_dai_queue is not None),
+            "recording_active": bool(self._active_recording and getattr(self._active_recording, "is_running", False)),
             "streaming": bool(self._is_streaming and is_hardware_connected),
             "fps": round(self.current_fps, 1) if is_hardware_connected else 0.0,
             "camera_settings": self._camera_settings() if (self._is_running and is_hardware_connected) else None,
