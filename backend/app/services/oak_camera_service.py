@@ -666,7 +666,16 @@ class OakCameraService:
                     stereo = pipeline.create(dai.node.StereoDepth)
                     stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
                     stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
-                    stereo.setOutputSize(width, height)
+                    # StereoDepth sensors do not generally support the color
+                    # stream's 1920x1080 output size. Requesting that size
+                    # makes DepthAI reject the graph and silently leaves the
+                    # application in RGB-only mode. Keep the native stereo
+                    # resolution; alignment still follows CAM_A and the
+                    # recorder accepts the actual depth frame dimensions.
+                    logger.info(
+                        "[PIPELINE] StereoDepth using native supported depth resolution "
+                        f"(color stream is {width}x{height})"
+                    )
 
                     mono_left_out = None
                     mono_right_out = None
