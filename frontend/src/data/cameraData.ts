@@ -5,6 +5,7 @@ export const DEFAULT_CAMERA_CONFIG: CameraConfig = {
   resolution: '1920x1080',
   targetFps: 30,
   recordingFormat: 'MP4',
+  recordDepth: true,
   rotationAngle: 0,
   controlMode: 'auto',
   exposure: 8,

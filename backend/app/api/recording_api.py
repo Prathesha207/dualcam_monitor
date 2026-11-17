@@ -78,7 +78,7 @@ async def start_recording(data: StartRecordingRequest, db: Session = Depends(get
             camera_id=cam_id or camera_config.id,
             camera_name=camera_name,
             clip_duration_minutes=clip_mins,
-            record_depth=data.record_depth,
+            record_depth=data.record_depth if data.record_depth is not None else getattr(camera_config, "record_depth", True),
         )
         return {
             "status": "recording",
@@ -209,7 +209,7 @@ async def start_all_recordings(data: StartRecordingRequest, db: Session = Depend
             camera_id=cid,
             camera_name=cam_name,
             clip_duration_minutes=clip_mins,
-            record_depth=data.record_depth,
+            record_depth=data.record_depth if data.record_depth is not None else getattr(camera_config, "record_depth", True),
         )
         results[cid] = {
             "session_id": cam_session_id,

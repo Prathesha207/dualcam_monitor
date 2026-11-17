@@ -350,6 +350,7 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
         recording_format: localConfig.recordingFormat || 'MP4',
         recording_video_path: storagePath || undefined,
         clip_duration_minutes: Math.max(1, Math.min(1440, Math.round(Number(localConfig.clipDurationMinutes || 1)))),
+        record_depth: localConfig.recordDepth !== false,
       };
       const saved = await cameraService.createCamera(payload);
       const updated: CameraConfig = {
@@ -581,6 +582,41 @@ export const CameraSettingsModal: React.FC<CameraSettingsModalProps> = ({
                         </button>
                       );
                     })}
+                  </div>
+                </div>
+
+                {/* Record Depth Stream Toggle */}
+                <div className="sm:col-span-2 space-y-1 pt-1.5 border-t border-[var(--border-color)]/60">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] font-bold text-[var(--text-secondary)] block">
+                        Record Depth Stream
+                      </span>
+                      <span className="text-[10px] text-[var(--text-muted)]">
+                        Saves bit-exact 16-bit depth (.mkv) and synchronized visual preview in the same folder.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setLocalConfig({
+                          ...localConfig,
+                          recordDepth: localConfig.recordDepth === false ? true : false,
+                        })
+                      }
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                        localConfig.recordDepth !== false
+                          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                          : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-color)]'
+                      }`}
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          localConfig.recordDepth !== false ? 'bg-emerald-500' : 'bg-gray-400'
+                        }`}
+                      />
+                      <span>{localConfig.recordDepth !== false ? 'Depth: Enabled' : 'Color Only'}</span>
+                    </button>
                   </div>
                 </div>
 

@@ -38,6 +38,7 @@ class Camera(Base):
     recording_video_testing_path = Column(String, nullable=True)
     recording_format = Column(String(20), default="MP4")
     clip_duration_minutes = Column(Integer, default=1)
+    record_depth = Column(Boolean, default=True, nullable=True)
 
     is_enabled = Column(Boolean, default=True)
 

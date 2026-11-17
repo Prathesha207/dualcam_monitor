@@ -20,11 +20,12 @@ export interface StopRecordingResponse {
 
 export const recordingService = {
 
-  async startRecording(sessionId: string, recordingFormat?: string, cameraId?: number) {
+  async startRecording(sessionId: string, recordingFormat?: string, cameraId?: number, recordDepth?: boolean) {
     const res = await api.post("/recording/start", {
       session_id: sessionId,
       recording_format: recordingFormat,
       camera_id: cameraId,
+      record_depth: recordDepth,
     });
     return res.data as StartRecordingResponse;
   },
@@ -37,10 +38,11 @@ export const recordingService = {
     return res.data as StopRecordingResponse;
   },
 
-  async startAllRecordings(baseSessionId: string, recordingFormat?: string) {
+  async startAllRecordings(baseSessionId: string, recordingFormat?: string, recordDepth?: boolean) {
     const res = await api.post("/recording/start-all", {
       session_id: baseSessionId,
       recording_format: recordingFormat,
+      record_depth: recordDepth,
     });
     return res.data;
   },

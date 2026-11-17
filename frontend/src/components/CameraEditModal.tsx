@@ -59,6 +59,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
   const [resolution, setResolution] = useState<'1920x1080' | '1280x720'>('1920x1080');
   const [targetFps, setTargetFps] = useState(30);
   const [recordingFormat, setRecordingFormat] = useState<'MP4' | 'AVI' | 'FFV1'>('MP4');
+  const [recordDepth, setRecordDepth] = useState(true);
   const [storagePath, setStoragePath] = useState('');
   const [defaultDesktopPath, setDefaultDesktopPath] = useState('');
   const [controlMode, setControlMode] = useState<'auto' | 'manual'>('auto');
@@ -94,6 +95,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
     setResolution((camera.resolution as any) || '1920x1080');
     setTargetFps(camera.targetFps || 30);
     setRecordingFormat((camera.recordingFormat as any) || 'MP4');
+    setRecordDepth(camera.recordDepth !== false);
     setStoragePath(camera.recordingVideoPath || '');
     setControlMode(camera.controlMode || 'auto');
     setIsEnabled(camera.is_enabled !== false);
@@ -234,6 +236,7 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
         resolution,
         targetFps,
         recordingFormat,
+        recordDepth,
         recordingVideoPath: storagePath.trim() || undefined,
         clipDurationMinutes: Math.max(1, clipDurationMinutes || 1),
         controlMode,
@@ -435,6 +438,36 @@ export const CameraEditModal: React.FC<CameraEditModalProps> = ({
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            {/* Record Depth Stream Toggle */}
+            <div className="sm:col-span-2 space-y-1 pt-2 border-t border-[var(--border-color)]/60">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-[var(--text-secondary)] uppercase tracking-wider block">
+                    Record Depth Stream
+                  </span>
+                  <span className="text-[10px] text-[var(--text-muted)]">
+                    Saves bit-exact 16-bit depth (.mkv) and synchronized visual preview in the same folder.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRecordDepth(!recordDepth)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
+                    recordDepth
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                      : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-color)]'
+                  }`}
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      recordDepth ? 'bg-emerald-500' : 'bg-gray-400'
+                    }`}
+                  />
+                  <span>{recordDepth ? 'Depth: Enabled' : 'Color Only'}</span>
+                </button>
               </div>
             </div>
 

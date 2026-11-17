@@ -11,6 +11,7 @@ export interface CameraConfig {
   recordingFormat?: 'AVI' | 'MP4' | 'FFV1';
   recordingVideoPath?: string | null;
   clipDurationMinutes?: number;
+  recordDepth?: boolean;
   rotationAngle?: number;
   controlMode?: 'auto' | 'manual';
   exposure: number;

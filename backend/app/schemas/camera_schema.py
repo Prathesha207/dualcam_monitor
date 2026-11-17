@@ -121,6 +121,7 @@ class CameraBase(BaseModel):
     recording_video_testing_path: Optional[str] = None
     recording_format: Optional[str] = "MP4"
     clip_duration_minutes: Optional[int] = Field(default=1, ge=1, le=1440)
+    record_depth: Optional[bool] = True
 
 
 class CameraCreate(CameraBase):
@@ -241,6 +242,7 @@ class CameraUpdate(BaseModel):
     recording_video_testing_path: Optional[str] = None
     recording_format: Optional[str] = None
     clip_duration_minutes: Optional[int] = Field(default=None, ge=1, le=1440)
+    record_depth: Optional[bool] = None
 
 
 class CameraResponse(CameraBase):

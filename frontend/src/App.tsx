@@ -107,6 +107,7 @@ export default function App() {
           recordingFormat: (c.recording_format as any) || 'MP4',
           recordingVideoPath: c.recording_video_path || null,
           clipDurationMinutes: c.clip_duration_minutes ?? 1,
+          recordDepth: (c as any).record_depth !== false,
         }));
         setCameras(mapped);
 
@@ -320,7 +321,8 @@ export default function App() {
             await handleStartStream(id);
           }
           const format = cam?.recordingFormat || 'MP4';
-          await recordingService.startRecording(sid, format, id);
+          const recDepth = cam?.recordDepth !== false;
+          await recordingService.startRecording(sid, format, id, recDepth);
           setRecordingStates((prev) => ({ ...prev, [id]: { isRecording: true, duration: 0, sessionId: sid } }));
           showToast('info', `Started recording on ${cam?.sourceName || `Camera ${id}`}`);
           addLog(`Started recording on Camera ${id}`, 'info');
@@ -361,7 +363,8 @@ export default function App() {
             await handleStartStream(c.id).catch(() => {});
           }
         }
-        await recordingService.startAllRecordings(baseSid);
+        const recDepth = cameras.some((c) => c.recordDepth !== false);
+        await recordingService.startAllRecordings(baseSid, undefined, recDepth);
         const newStates: Record<number, { isRecording: boolean; duration: number; sessionId: string }> = {};
         cameras.forEach((c) => {
           if (c.id && c.is_enabled !== false) {
@@ -420,6 +423,7 @@ export default function App() {
           recording_format: updated.recordingFormat,
           recording_video_path: updated.recordingVideoPath,
           clip_duration_minutes: updated.clipDurationMinutes,
+          record_depth: updated.recordDepth !== false,
         });
         showToast('success', `${updated.sourceName} settings updated`);
         addLog(`Updated camera ${updated.id} parameters in database`, 'info');

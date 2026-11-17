@@ -341,6 +341,35 @@ export const CameraCard: React.FC<CameraCardProps> = ({
               <span>{camera.resolution || '1080p'} @ {camera.targetFps || 30} FPS</span>
               <span>•</span>
               <span className="uppercase">{camera.recordingFormat || 'MP4'}</span>
+              <span>•</span>
+              <button
+                type="button"
+                disabled={isRecording}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isRecording) return;
+                  const newRecordDepth = !(camera.recordDepth !== false);
+                  onUpdateLiveControls?.(cameraId, { recordDepth: newRecordDepth });
+                  cameraService.updateCamera(cameraId, { record_depth: newRecordDepth } as any).catch(console.warn);
+                }}
+                title={
+                  isRecording
+                    ? 'Depth recording is locked while recording is active'
+                    : camera.recordDepth !== false
+                    ? 'Depth recording is ON (Saving color + 16-bit depth MKV + preview). Click to record Color only.'
+                    : 'Depth recording is OFF (Color only). Click to enable 16-bit Depth stream recording.'
+                }
+                className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9.5px] font-semibold transition-all border shrink-0 ${
+                  isRecording
+                    ? 'opacity-40 cursor-not-allowed bg-[var(--bg-card)] text-[var(--text-secondary)] border-[var(--border-color)]'
+                    : 'cursor-pointer active:scale-95 ' +
+                      (camera.recordDepth !== false
+                        ? 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/25'
+                        : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-color)] hover:text-[var(--text-primary)] hover:border-[var(--accent-pond)]')
+                }`}
+              >
+                <span>DEPTH: {camera.recordDepth !== false ? 'ON' : 'OFF'}</span>
+              </button>
             </div>
           </div>
         </div>
