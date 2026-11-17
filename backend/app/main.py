@@ -85,6 +85,12 @@ def _ensure_tables():
                     "ADD COLUMN clip_duration_minutes INTEGER DEFAULT 1"
                 )
 
+            if "record_depth" not in existing_camera_columns:
+                camera_migrations.append(
+                    "ALTER TABLE cameras "
+                    "ADD COLUMN record_depth BOOLEAN DEFAULT 1"
+                )
+
             if camera_migrations:
                 with engine.begin() as conn:
                     for sql in camera_migrations:

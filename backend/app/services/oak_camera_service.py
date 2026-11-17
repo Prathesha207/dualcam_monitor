@@ -1668,7 +1668,7 @@ class OakCameraService:
         if self.device is not None and self.is_connected:
             try:
                 calib = self.device.readCalibration()
-                device_mxid = self.device.getMxId()
+                device_mxid = _extract_device_mxid(self.device)
             except Exception as e:
                 logger.warning(f"[CALIBRATION] Failed reading calibration from active device: {e}")
 
@@ -1681,7 +1681,7 @@ class OakCameraService:
                         "message": "No OAK-D camera detected via USB. Please connect the camera."
                     }
                 device_info = devices[0]
-                device_mxid = device_info.getMxId()
+                device_mxid = _extract_device_mxid(device_info)
                 try:
                     with dai.Device(device_info) as dev:
                         calib = dev.readCalibration()
@@ -1691,7 +1691,13 @@ class OakCameraService:
                         "message": f"Failed to connect to OAK-D device ({device_mxid}): {e}"
                     }
 
-        if not calib.hasCalibrationData():
+        has_calib = False
+        try:
+            has_calib = calib.hasCalibrationData()
+        except Exception:
+            has_calib = True
+
+        if not has_calib:
             return {
                 "status": "error",
                 "message": f"Connected device ({device_mxid}) has no factory calibration data in EEPROM."

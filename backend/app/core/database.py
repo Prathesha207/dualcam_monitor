@@ -28,6 +28,21 @@ if DATABASE_URL.startswith("sqlite"):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA busy_timeout=30000")
+        try:
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='cameras'")
+            if cursor.fetchone():
+                cursor.execute("PRAGMA table_info(cameras)")
+                existing_cols = {row[1] for row in cursor.fetchall()}
+                if "record_depth" not in existing_cols:
+                    cursor.execute("ALTER TABLE cameras ADD COLUMN record_depth BOOLEAN DEFAULT 1")
+                if "recording_video_testing_path" not in existing_cols:
+                    cursor.execute("ALTER TABLE cameras ADD COLUMN recording_video_testing_path VARCHAR")
+                if "recording_format" not in existing_cols:
+                    cursor.execute("ALTER TABLE cameras ADD COLUMN recording_format VARCHAR(20) DEFAULT 'MP4'")
+                if "clip_duration_minutes" not in existing_cols:
+                    cursor.execute("ALTER TABLE cameras ADD COLUMN clip_duration_minutes INTEGER DEFAULT 1")
+        except Exception:
+            pass
         cursor.close()
 
 SessionLocal = sessionmaker(
