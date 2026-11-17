@@ -147,10 +147,12 @@ def stop_recording(data: StopRecordingRequest):
             "depth_frames": result.get("depth_frames_written", 0),
             "has_depth": result.get("has_depth", False),
             "depth_files": [
-                clip.get("depth_raw_filename") or clip.get("depth_preview_filename")
+                file_name
                 for clip in clips
-                if clip.get("depth_raw_filename") or clip.get("depth_preview_filename")
+                for file_name in (clip.get("depth_raw_filename"), clip.get("depth_preview_filename"))
+                if file_name
             ],
+            "clips": clips,
             "width": result.get("width", 1920),
             "height": result.get("height", 1080),
         }

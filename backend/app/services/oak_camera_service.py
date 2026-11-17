@@ -655,19 +655,13 @@ class OakCameraService:
             self._control_queue = cam.inputControl.createInputQueue(maxSize=4, blocking=False)
 
             # --- Optional StereoDepth node (if device has stereo sockets CAM_B and CAM_C) ---
-            has_stereo = False
+            # Do not gate StereoDepth on getConnectedCameras() string parsing.
+            # DepthAI v2/v3 return different enum representations there, which
+            # previously made an OAK-D look like an RGB-only camera. Attempt
+            # the stereo nodes directly; unsupported RGB-only devices are
+            # caught below and cleanly fall back to RGB mode.
             wants_depth = getattr(config, "record_depth", True) is not False
             if not skip_stereo and wants_depth and self.device is not None:
-                try:
-                    con_cams = self.device.getConnectedCameras()
-                    con_names = [getattr(c, "name", str(c)).upper() for c in con_cams]
-                    has_b = any("CAM_B" in n or "LEFT" in n for n in con_names)
-                    has_c = any("CAM_C" in n or "RIGHT" in n for n in con_names)
-                    has_stereo = has_b and has_c
-                except Exception:
-                    has_stereo = False
-
-            if has_stereo:
                 try:
                     stereo = pipeline.create(dai.node.StereoDepth)
                     stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
@@ -1930,6 +1924,16 @@ class OakCameraService:
                  or getattr(self, "_depth_dai_queue", None) is not None
                  or getattr(self, "_latest_depth_raw", None) is not None)
         )
+        logger.info(
+            f"[RECORD] Depth mode: enabled={depth_active} | "
+            f"pipeline_depth={bool(getattr(self, '_depth_dai_queue', None))} | "
+            f"has_depth={self.has_depth}"
+        )
+        if record_depth is not False and not getattr(self, "_depth_dai_queue", None):
+            logger.warning(
+                "[RECORD] Depth recording requested but no StereoDepth queue is available; "
+                "this session will contain color video only"
+            )
 
         rec_path = _start(
             session_id=session_id,

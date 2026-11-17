@@ -69,7 +69,7 @@ export function useRecording() {
       sessionIdRef.current = null;
       startTimeRef.current = null;
 
-      if (res && res.status === 'stopped') {
+      if (res && (res.status === 'done' || res.status === 'stopped')) {
         if (res.recording_path) {
           setRecordedVideoUrl(res.recording_path);
         }

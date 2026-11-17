@@ -14,6 +14,17 @@ export interface StopRecordingResponse {
   filename?: string;
   duration?: number;
   frames?: number;
+  depth_frames?: number;
+  has_depth?: boolean;
+  depth_files?: string[];
+  clips?: Array<{
+    index: number;
+    filename: string;
+    path: string;
+    depth_raw_filename?: string;
+    depth_preview_filename?: string;
+    depth_raw_frames?: number;
+  }>;
   stream_url?: string;
   message?: string;
 }

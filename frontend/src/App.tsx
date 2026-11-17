@@ -307,8 +307,11 @@ export default function App() {
         try {
           const res = await recordingService.stopRecording(sid, id);
           setRecordingStates((prev) => ({ ...prev, [id]: { isRecording: false, duration: 0, sessionId: '' } }));
-          showToast('success', `Recording saved: ${res.filename || 'video file'}`);
-          addLog(`Saved recording for Camera ${id}: ${res.recording_path}`, 'info');
+          const depthInfo = res.has_depth
+            ? ` + ${res.depth_files?.length || 0} depth file(s), ${res.depth_frames || 0} depth frames`
+            : ' (no depth frames received)';
+          showToast('success', `Recording saved: ${res.filename || 'video file'}${depthInfo}`);
+          addLog(`Saved recording for Camera ${id}: ${res.recording_path}${depthInfo}`, 'info');
         } catch (err: any) {
           showToast('error', err?.message || `Failed to stop recording for Camera ${id}`);
         }
