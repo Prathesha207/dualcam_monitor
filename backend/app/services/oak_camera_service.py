@@ -244,6 +244,13 @@ class OakCameraService:
         loop = asyncio.get_running_loop()
         self._last_connection_error = None
         self._configured_ip = str(ip or "").strip()
+
+        # Ensure previous connection is cleanly closed first
+        if self.device is not None or self.is_connected or self._pipeline is not None:
+            logger.info(f"[DEVICE] Closing previous device session before connecting to {ip}")
+            await self.disconnect()
+            await asyncio.sleep(0.5)
+
         max_attempts = 2
         for attempt in range(max_attempts):
             try:
@@ -329,7 +336,30 @@ class OakCameraService:
             except Exception as e:
                 err_str = str(e)
                 is_usb = not ip or str(ip).strip().lower() in {"usb", "auto"}
-                if any(k in err_str.lower() for k in ["already used", "in use", "already_in_use", "busy", "occupied", "claimed"]):
+                is_gate_err = any(k in err_str.lower() for k in ["devicegate", "gate could not start", "createsession not successful", "start fwp not successful"])
+                is_in_use = any(k in err_str.lower() for k in ["already used", "in use", "already_in_use", "busy", "occupied", "claimed"])
+
+                if is_gate_err:
+                    clean_msg = (
+                        f"Camera gate at {ip} is busy or holding a stale connection session. "
+                        "Please power-cycle the camera (unplug and replug the PoE/USB cable for 5 seconds) to clear the gate."
+                    )
+                    self._last_connection_error = clean_msg
+                    if attempt < max_attempts - 1:
+                        logger.warning(f"[DEVICE] Gate session busy, waiting 3.0s to retry (attempt {attempt + 1}/{max_attempts})...")
+                        if self.device is not None:
+                            try:
+                                await self.disconnect()
+                            except Exception:
+                                pass
+                        await asyncio.sleep(3.0)
+                        continue
+                    else:
+                        logger.warning(f"[DEVICE] Connection failed after {max_attempts} attempts: {clean_msg}")
+                        realtime_log_service.add_log("camera", "CAMERA", clean_msg, "error")
+                        self.is_connected = False
+                        return False
+                elif is_in_use:
                     if is_usb:
                         clean_msg = "USB device is already in use by another application/process. Make sure to close other software using the camera."
                     else:

@@ -329,6 +329,18 @@ def delete_camera(db: Session, camera_id: int):
         if not camera:
             raise HTTPException(status_code=404, detail="Camera not found")
 
+        # Cleanly stop and disconnect hardware instance
+        try:
+            from app.services.oak_camera_service import oak_camera_service
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                loop.create_task(oak_camera_service.stop(camera_id))
+            except RuntimeError:
+                asyncio.run(oak_camera_service.stop(camera_id))
+        except Exception as stop_err:
+            logger.warning(f"[DELETE_CAMERA] Hardware teardown warning: {stop_err}")
+
         db.delete(camera)
         db.commit()
         realtime_log_service.add_log(

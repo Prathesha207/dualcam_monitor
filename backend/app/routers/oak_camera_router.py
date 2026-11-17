@@ -74,7 +74,11 @@ async def start_camera(payload: Optional[StartCameraPayload] = None, db: Session
         try:
             cid = getattr(payload, "camera_id", None) or getattr(camera, "id", None)
             result = await oak_camera_service.start(camera, camera_id=cid)
+            if isinstance(result, dict) and result.get("status") == "error":
+                raise HTTPException(status_code=400, detail=result.get("message", "Failed to start camera"))
             return result
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"[API ERROR] POST /oak/start: {e}", exc_info=True)
             realtime_log_service.add_log("camera", "CRASH", f"Start camera failed: {e}", "error")
@@ -103,7 +107,11 @@ async def start_stream(payload: Optional[StartCameraPayload] = None, camera_id: 
         cid = camera_id or (payload.camera_id if payload else None)
         inst = oak_camera_service.get_instance(cid)
         result = await inst.start_streaming()
+        if isinstance(result, dict) and result.get("status") == "error":
+            raise HTTPException(status_code=400, detail=result.get("message", "Failed to start stream"))
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[API ERROR] POST /oak/stream/start: {e}", exc_info=True)
         realtime_log_service.add_log("stream", "CRASH", f"Start stream failed: {e}", "error")

@@ -77,6 +77,9 @@ export const cameraService = {
   async startStream(cameraId?: number | string) {
     const cid = cameraId ? parseInt(String(cameraId), 10) : undefined;
     const res = await api.post("/oak/stream/start", { camera_id: cid });
+    if (res.data?.status === 'error') {
+      throw new Error(res.data.message || 'Failed to start stream');
+    }
     return res.data;
   },
 
