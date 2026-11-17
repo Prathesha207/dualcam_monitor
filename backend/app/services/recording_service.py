@@ -214,6 +214,7 @@ class RecordingSession:
 
         self.thread = None
         self.camera_settings = camera_settings or {}
+        self.camera_calibration = self.camera_settings.get("calibration")
         self.settings_history = [{"elapsed_seconds": 0.0, "settings": self.camera_settings.copy()}]
 
         # Write initial session manifest
@@ -565,11 +566,17 @@ class RecordingSession:
                 }
                 for c in self.clips
             ],
+            **({"camera_calibration": self.camera_calibration} if self.camera_calibration else {}),
         }
         json_path = os.path.join(self.session_dir, "session.json")
         try:
             with open(json_path, "w", encoding="utf-8") as f:
                 json.dump(manifest, f, indent=2)
+            if self.camera_calibration:
+                calib_path = os.path.join(self.session_dir, "calibration.json")
+                if not os.path.exists(calib_path):
+                    with open(calib_path, "w", encoding="utf-8") as cf:
+                        json.dump(self.camera_calibration, cf, indent=2)
         except Exception as e:
             logger.warning(f"[RECORD] Error updating session.json: {e}")
 

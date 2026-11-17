@@ -1895,8 +1895,43 @@ class OakCameraService:
         logger.info(f"[RECORD] Active recording initialized: {rec_path} (camera={cname}, format={resolved_format}, split={clip_mins}m)")
         return rec_path
 
+    def get_camera_calibration(self) -> dict | None:
+        """Extract factory EEPROM calibration matrix, baseline, and distortion parameters from device."""
+        if self.device is None:
+            return None
+        try:
+            calib = self.device.readCalibration()
+            w, h = self._pipeline_width, self._pipeline_height
+            intrinsics = calib.getCameraIntrinsics(dai.CameraBoardSocket.CAM_A, w, h)
+            distortion = calib.getDistortionCoefficients(dai.CameraBoardSocket.CAM_A)
+            baseline = None
+            try:
+                baseline = calib.getBaselineDistance(dai.CameraBoardSocket.CAM_B, dai.CameraBoardSocket.CAM_C) * 10.0  # cm to mm
+            except Exception:
+                pass
+            fov = None
+            try:
+                fov = calib.getFov(dai.CameraBoardSocket.CAM_A)
+            except Exception:
+                pass
+            return {
+                "fx": round(float(intrinsics[0][0]), 3),
+                "fy": round(float(intrinsics[1][1]), 3),
+                "cx": round(float(intrinsics[0][2]), 3),
+                "cy": round(float(intrinsics[1][2]), 3),
+                "intrinsics_3x3": [[round(float(v), 3) for v in row] for row in intrinsics],
+                "distortion_coefficients": [round(float(v), 5) for v in distortion],
+                "baseline_mm": round(float(baseline), 2) if baseline is not None else None,
+                "fov_deg": round(float(fov), 2) if fov is not None else None,
+                "aligned_to": "CAM_A",
+                "depth_unit": "millimeter (uint16)",
+            }
+        except Exception as e:
+            logger.debug(f"[CALIB] Read calibration warning: {e}")
+            return None
+
     def _recording_settings_snapshot(self) -> dict:
-        return {
+        snap = {
             "exposure_us": self.current_exposure_us,
             "gain": self.current_gain,
             "focus": self.current_focus,
@@ -1906,6 +1941,10 @@ class OakCameraService:
             "auto_focus": self.auto_focus_enabled,
             "control_mode": self.control_mode,
         }
+        calib = self.get_camera_calibration()
+        if calib:
+            snap["calibration"] = calib
+        return snap
 
     def stop_recording(self, session_id: str) -> dict:
         from app.services.recording_service import stop_recording as _stop
