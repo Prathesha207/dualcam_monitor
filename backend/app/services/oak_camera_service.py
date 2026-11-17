@@ -522,7 +522,7 @@ class OakCameraService:
     # ==================== Pipeline ====================
     # Camera -> Encoder (Raw Frames) -> JPEG Stream (Recording) 
     # Camera MJPEG(Stream) RAW NV12(Video File Recording)
-    def _build_pipeline(self, pipeline: dai.Pipeline, config) -> bool:
+    def _build_pipeline(self, pipeline: dai.Pipeline, config, skip_stereo: bool = False) -> bool:
         try:
             logger.info("[PIPELINE] Building...")
 
@@ -662,7 +662,8 @@ class OakCameraService:
 
             # --- Optional StereoDepth node (if device has stereo sockets CAM_B and CAM_C) ---
             has_stereo = False
-            if self.device is not None:
+            wants_depth = getattr(config, "record_depth", True) is not False
+            if not skip_stereo and wants_depth and self.device is not None:
                 try:
                     con_cams = self.device.getConnectedCameras()
                     con_names = [getattr(c, "name", str(c)).upper() for c in con_cams]
@@ -674,25 +675,41 @@ class OakCameraService:
 
             if has_stereo:
                 try:
-                    mono_left = pipeline.create(dai.node.MonoCamera)
-                    mono_left.setBoardSocket(dai.CameraBoardSocket.CAM_B)
-                    mono_left.setFps(raw_fps)
-                    if hasattr(dai.MonoCameraProperties, "SensorResolution"):
-                        mono_left.setResolution(dai.MonoCameraProperties.SensorResolution.THE_720_P)
+                    mono_left_out = None
+                    mono_right_out = None
 
-                    mono_right = pipeline.create(dai.node.MonoCamera)
-                    mono_right.setBoardSocket(dai.CameraBoardSocket.CAM_C)
-                    mono_right.setFps(raw_fps)
-                    if hasattr(dai.MonoCameraProperties, "SensorResolution"):
-                        mono_right.setResolution(dai.MonoCameraProperties.SensorResolution.THE_720_P)
+                    # Modern DepthAI v3 / RVC4: Unified Camera node
+                    try:
+                        mono_left = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_B)
+                        mono_right = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_C)
+                        mono_left_out = mono_left.requestFullResolutionOutput()
+                        mono_right_out = mono_right.requestFullResolutionOutput()
+                        logger.info("[PIPELINE] Stereo cameras configured with unified dai.node.Camera (RVC4/v3)")
+                    except Exception as unified_err:
+                        # Legacy DepthAI v2 / RVC2: MonoCamera node
+                        logger.debug(f"[PIPELINE] Trying legacy MonoCamera nodes: {unified_err}")
+                        mono_left = pipeline.create(dai.node.MonoCamera)
+                        mono_left.setBoardSocket(dai.CameraBoardSocket.CAM_B)
+                        mono_left.setFps(raw_fps)
+                        if hasattr(dai.MonoCameraProperties, "SensorResolution"):
+                            mono_left.setResolution(dai.MonoCameraProperties.SensorResolution.THE_720_P)
+
+                        mono_right = pipeline.create(dai.node.MonoCamera)
+                        mono_right.setBoardSocket(dai.CameraBoardSocket.CAM_C)
+                        mono_right.setFps(raw_fps)
+                        if hasattr(dai.MonoCameraProperties, "SensorResolution"):
+                            mono_right.setResolution(dai.MonoCameraProperties.SensorResolution.THE_720_P)
+
+                        mono_left_out = mono_left.out
+                        mono_right_out = mono_right.out
 
                     stereo = pipeline.create(dai.node.StereoDepth)
                     stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
                     stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
                     stereo.setOutputSize(width, height)
 
-                    mono_left.out.link(stereo.left)
-                    mono_right.out.link(stereo.right)
+                    mono_left_out.link(stereo.left)
+                    mono_right_out.link(stereo.right)
 
                     self._depth_dai_queue = stereo.depth.createOutputQueue(maxSize=4, blocking=False)
                     self.has_depth = True
@@ -2075,7 +2092,27 @@ class OakCameraService:
                 if not self._build_pipeline(self._pipeline, config):
                     return {"status": "error", "message": "Pipeline build failed"}
 
-                self._pipeline.start()
+                try:
+                    self._pipeline.start()
+                except Exception as pipe_err:
+                    if self.has_depth:
+                        logger.warning(
+                            f"[PIPELINE] Pipeline startup with depth failed: {pipe_err}. "
+                            "Rebuilding pipeline in robust RGB-only mode..."
+                        )
+                        self._cleanup_pipeline()
+                        with self._pipeline_lock:
+                            self._pipeline = dai.Pipeline(self.device)
+                        self.has_depth = False
+                        self._depth_dai_queue = None
+                        if self._build_pipeline(self._pipeline, config, skip_stereo=True):
+                            self._pipeline.start()
+                            logger.info("[PIPELINE] Fallback RGB-only pipeline started successfully!")
+                        else:
+                            raise pipe_err
+                    else:
+                        raise pipe_err
+
                 self._is_running = True
 
                 self._start_capture_threads()
