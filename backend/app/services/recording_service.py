@@ -15,6 +15,7 @@ import threading
 import time
 import logging
 import json
+from collections import deque
 from fractions import Fraction
 from datetime import datetime
 from app.core.app_paths import get_desktop_dir
@@ -168,6 +169,7 @@ class RecordingSession:
         self._saw_depth = False
         self._depth_lock = threading.Lock()
         self._latest_depth_raw: np.ndarray | None = None
+        self._depth_buffer: deque = deque(maxlen=60)
         self._depth_raw_container = None
         self._depth_raw_stream = None
         self._depth_prev_container = None
@@ -767,11 +769,41 @@ class RecordingSession:
         else:
             depth_raw_16 = np.ascontiguousarray(depth_raw_16)
 
+        d_copy = depth_raw_16.copy()
         with self._depth_lock:
             self._saw_depth = True
             self.record_depth = True
             self.depth_height, self.depth_width = depth_raw_16.shape[:2]
-            self._latest_depth_raw = depth_raw_16.copy()
+            self._latest_depth_raw = d_copy
+            self._depth_buffer.append((cam_ts_sec, seq_num, d_copy))
+
+    def _match_depth_frame(self, cam_ts_sec: float | None, seq_num: int | None) -> np.ndarray | None:
+        """Find the exact matching depth frame for this color frame using sequence number or hardware timestamp."""
+        with self._depth_lock:
+            if not self._depth_buffer:
+                return self._latest_depth_raw
+
+            # 1. Exact sequence number match (hardware frame counter)
+            if seq_num is not None:
+                for item in self._depth_buffer:
+                    if item[1] is not None and item[1] == seq_num:
+                        return item[2]
+
+            # 2. Closest hardware timestamp match (exposure start clock)
+            if cam_ts_sec is not None:
+                best_item = None
+                min_diff = float("inf")
+                for item in self._depth_buffer:
+                    if item[0] is not None:
+                        diff = abs(item[0] - cam_ts_sec)
+                        if diff < min_diff:
+                            min_diff = diff
+                            best_item = item
+                if best_item is not None and min_diff < 0.05:  # Within 50ms tolerance
+                    return best_item[2]
+
+            # 3. Fallback to latest
+            return self._latest_depth_raw
 
     def add_dual_frame(
         self,
@@ -787,7 +819,7 @@ class RecordingSession:
             self.add_depth_frame(depth_raw_16, cam_ts_sec=cam_ts_sec, seq_num=seq_num)
 
         if color_frame is not None:
-            self.add_frame(color_frame)
+            self.add_frame(color_frame, cam_ts_sec=cam_ts_sec, seq_num=seq_num)
 
     def add_nv12_frame(
         self,
@@ -820,12 +852,11 @@ class RecordingSession:
         self._last_pts_ms = pts_ms
 
         color_payload = ("nv12", y_plane, uv_plane, int(brightness or 0))
-        with self._depth_lock:
-            d_frame = self._latest_depth_raw
-            if d_frame is not None and (self.record_depth or self._saw_depth):
-                payload = ("dual", color_payload, d_frame)
-            else:
-                payload = color_payload
+        d_frame = self._match_depth_frame(cam_ts_sec, seq_num)
+        if d_frame is not None and (self.record_depth or self._saw_depth):
+            payload = ("dual", color_payload, d_frame)
+        else:
+            payload = color_payload
 
         self._enqueue_payload(payload, pts_ms)
 
@@ -857,12 +888,11 @@ class RecordingSession:
         color_payload = np.ascontiguousarray(bgr)
         if copy_frame:
             color_payload = color_payload.copy()
-        with self._depth_lock:
-            d_frame = self._latest_depth_raw
-            if d_frame is not None and (self.record_depth or self._saw_depth):
-                payload = ("dual", color_payload, d_frame)
-            else:
-                payload = color_payload
+        d_frame = self._match_depth_frame(cam_ts_sec, seq_num)
+        if d_frame is not None and (self.record_depth or self._saw_depth):
+            payload = ("dual", color_payload, d_frame)
+        else:
+            payload = color_payload
 
         self._enqueue_payload(payload, pts_ms)
 
