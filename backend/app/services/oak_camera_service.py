@@ -2050,6 +2050,9 @@ class OakCameraService:
         # Serialize duplicate stop requests. The second request waits for the
         # first encoder flush, then receives the cached finalized result.
         with self._recording_stop_lock:
+            cached = self._completed_recordings.get(session_id)
+            if cached and not self._active_recording:
+                return cached
             result = _stop(session_id)
             if not result:
                 # A browser can issue stop twice while the first request is
