@@ -65,7 +65,11 @@ export const recordingService = {
 
   async getStatus() {
     const res = await api.get("/recording/status");
-    return res.data as { is_recording: boolean; active_count: number };
+    return res.data as {
+      is_recording: boolean;
+      active_count: number;
+      cameras?: Record<string, { is_recording: boolean; session_id?: string | null }>;
+    };
   },
 
 };

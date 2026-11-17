@@ -186,6 +186,42 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  // Reconcile the UI timer with backend recording state. A camera can stop
+  // because the stream/device is stopped or disconnected, so relying only on
+  // the button click leaves a stale REC timer running in the browser.
+  useEffect(() => {
+    let cancelled = false;
+    const syncRecordingState = async () => {
+      try {
+        const status = await recordingService.getStatus();
+        if (cancelled) return;
+        setRecordingStates((prev) => {
+          const next = { ...prev };
+          let changed = false;
+          Object.keys(next).forEach((key) => {
+            const backend = status.cameras?.[key];
+            const backendRecording = backend
+              ? backend.is_recording
+              : status.is_recording;
+            if (!backendRecording && next[Number(key)]?.isRecording) {
+              next[Number(key)] = { isRecording: false, duration: 0, sessionId: '' };
+              changed = true;
+            }
+          });
+          return changed ? next : prev;
+        });
+      } catch {
+        // Do not alter the timer on a transient status request failure.
+      }
+    };
+    syncRecordingState();
+    const timer = setInterval(syncRecordingState, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
+
   // ─── 7. Stream Action Handlers ─────────────────────────────────────
   const handleStartStream = useCallback(
     async (id: number) => {

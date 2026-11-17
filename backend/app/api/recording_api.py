@@ -255,10 +255,18 @@ def stop_all_recordings():
 def recording_status():
     try:
         from app.services.recording_service import active_recordings
-        active = oak_camera_service._active_recording is not None
+        cameras = {}
+        for camera_id, instance in oak_camera_service.get_all_instances().items():
+            session = getattr(instance, "_active_recording", None)
+            cameras[str(camera_id)] = {
+                "is_recording": bool(session and getattr(session, "is_running", False)),
+                "session_id": getattr(session, "session_id", None) if session else None,
+            }
+        active = any(item["is_recording"] for item in cameras.values())
         return {
             "is_recording": active,
             "active_count": len(active_recordings),
+            "cameras": cameras,
         }
     except HTTPException:
         raise
