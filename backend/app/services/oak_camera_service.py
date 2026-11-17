@@ -621,36 +621,19 @@ class OakCameraService:
             encoder.setQuality(95)
 
             if not is_color_camera:
-                # Fan out a SINGLE camera output when fps == raw_fps so browser MJPEG
-                # and raw NV12 recording share the exact same ISP crop, FOV, and frames.
-                if raw_fps == fps:
-                    try:
-                        shared_out = cam.requestOutput(
-                            (width, height), type=dai.ImgFrame.Type.NV12, fps=fps
-                        )
-                        shared_out.link(encoder.input)
-                        self._mjpeg_dai_queue = encoder.bitstream.createOutputQueue(maxSize=4, blocking=False)
-                        self._raw_dai_queue = shared_out.createOutputQueue(maxSize=30, blocking=False)
-                        logger.info(f"[PIPELINE] Shared NV12 output wired to MJPEG + Raw queues (fps={fps})")
-                    except Exception as fanout_err:
-                        logger.warning(f"[PIPELINE] Shared fan-out fallback ({fanout_err}) — using dual requestOutput")
-                        self._mjpeg_dai_queue = None
-                        self._raw_dai_queue = None
+                # Dedicated requestOutput for MJPEG stream and raw NV12 recording
+                mjpeg_out = cam.requestOutput(
+                    (width, height), type=dai.ImgFrame.Type.NV12, fps=fps
+                )
+                mjpeg_out.link(encoder.input)
+                self._mjpeg_dai_queue = encoder.bitstream.createOutputQueue(maxSize=4, blocking=False)
+                logger.info("[PIPELINE] Node 1: MJPEG encoder output ready")
 
-                if self._mjpeg_dai_queue is None or self._raw_dai_queue is None:
-                    # Dual output fallback (also used on USB 2.0 where raw_fps < fps)
-                    mjpeg_out = cam.requestOutput(
-                        (width, height), type=dai.ImgFrame.Type.NV12, fps=fps
-                    )
-                    mjpeg_out.link(encoder.input)
-                    self._mjpeg_dai_queue = encoder.bitstream.createOutputQueue(maxSize=4, blocking=False)
-                    logger.info("[PIPELINE] Node 1: MJPEG encoder ready")
-
-                    raw_out = cam.requestOutput(
-                        (width, height), type=dai.ImgFrame.Type.NV12, fps=raw_fps
-                    )
-                    self._raw_dai_queue = raw_out.createOutputQueue(maxSize=30, blocking=False)
-                    logger.info(f"[PIPELINE] Node 2: Raw NV12 ready (fps={raw_fps})")
+                raw_out = cam.requestOutput(
+                    (width, height), type=dai.ImgFrame.Type.NV12, fps=raw_fps
+                )
+                self._raw_dai_queue = raw_out.createOutputQueue(maxSize=30, blocking=False)
+                logger.info(f"[PIPELINE] Node 2: Raw NV12 output ready (fps={raw_fps})")
             else:
                 cam.video.link(encoder.input)
                 self._mjpeg_dai_queue = encoder.bitstream.createOutputQueue(maxSize=4, blocking=False)
@@ -675,6 +658,11 @@ class OakCameraService:
 
             if has_stereo:
                 try:
+                    stereo = pipeline.create(dai.node.StereoDepth)
+                    stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
+                    stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
+                    stereo.setOutputSize(width, height)
+
                     mono_left_out = None
                     mono_right_out = None
 
@@ -702,11 +690,6 @@ class OakCameraService:
 
                         mono_left_out = mono_left.out
                         mono_right_out = mono_right.out
-
-                    stereo = pipeline.create(dai.node.StereoDepth)
-                    stereo.setDefaultProfilePreset(dai.node.StereoDepth.PresetMode.HIGH_DENSITY)
-                    stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
-                    stereo.setOutputSize(width, height)
 
                     mono_left_out.link(stereo.left)
                     mono_right_out.link(stereo.right)
