@@ -12,6 +12,7 @@ import re
 import threading
 import time
 from collections import deque
+from datetime import timedelta
 from queue import Queue, Empty, Full
 from typing import Any, Optional, Dict
 
@@ -72,6 +73,20 @@ def _extract_device_mxid(device_or_info) -> str:
 
 
 _brightness_lut_cache: dict[int, np.ndarray] = {}
+
+
+def _queue_get_timeout(dai_queue, timeout_ms: int = 100):
+    """Block until a DepthAI packet arrives (instant wakeup), with v2 fallback."""
+    if dai_queue is None:
+        return None
+    try:
+        return dai_queue.get(timedelta(milliseconds=timeout_ms))
+    except TypeError:
+        # Legacy DepthAI v2 MessageQueue.get() takes no timeout argument
+        pkt = dai_queue.tryGet()
+        if pkt is None:
+            time.sleep(0.001)
+        return pkt
 
 def _get_brightness_lut(b: int) -> np.ndarray:
     """Pre-computed 256-element uint8 LUT for fast, negative-safe brightness scaling."""
@@ -163,6 +178,8 @@ class OakCameraService:
         self._latest_frame_data: tuple[np.ndarray, int, float] | None = None
         self._pipeline_width: int = 1920
         self._pipeline_height: int = 1080
+        self._sw_mjpeg_frames: int = 0
+        self._sw_mjpeg_pushed: int = 0
 
         # ---- Camera settings ----
         self.control_mode: str = "auto"
@@ -171,7 +188,7 @@ class OakCameraService:
         self.current_fps: float = 0.0
         self._configured_fps: int = 30
         self.current_exposure_us: int = 8000
-        self._ae_limit_us = 10000
+        self._ae_limit_us = 25000
         self.current_gain: int = 400
         self.current_focus: int = 128
         self.focus_available: bool = True
@@ -551,6 +568,7 @@ class OakCameraService:
             self._pipeline_height = height
             fps = max(5, min(60, int(config.fps or 30)))
             self._configured_fps = fps
+            self._ae_limit_us = max(8000, min(25000, int(1_000_000 / max(1, fps)) - 5000))
             logger.info(f"[PIPELINE] {width}x{height} @ {fps}fps")
 
             control_mode = (config.control_mode or "auto").lower()
@@ -632,7 +650,7 @@ class OakCameraService:
 
             encoder = pipeline.create(dai.node.VideoEncoder)
             encoder.setDefaultProfilePreset(fps, dai.VideoEncoderProperties.Profile.MJPEG)
-            encoder.setQuality(95)
+            encoder.setQuality(85)
 
             if not is_color_camera:
                 # Dedicated requestOutput for MJPEG stream and raw NV12 recording
@@ -667,26 +685,31 @@ class OakCameraService:
             if not skip_stereo and wants_depth and self.device is not None:
                 try:
                     stereo = pipeline.create(dai.node.StereoDepth)
-                    # DepthAI v2 calls this HIGH_DENSITY; DepthAI v3.11
-                    # renamed it to DENSITY. Select the best available preset
-                    # instead of failing the whole stereo graph.
+                    # Prefer FAST_DENSITY on RVC4/v3 for 30 FPS real-time depth
+                    # without saturating the VPU or PoE Ethernet link.
                     stereo_presets = dai.node.StereoDepth.PresetMode
                     depth_preset = (
-                        getattr(stereo_presets, "HIGH_DENSITY", None)
+                        getattr(stereo_presets, "FAST_DENSITY", None)
+                        or getattr(stereo_presets, "DEFAULT", None)
                         or getattr(stereo_presets, "DENSITY", None)
-                        or getattr(stereo_presets, "HIGH_DETAIL", None)
-                        or getattr(stereo_presets, "DEFAULT")
+                        or getattr(stereo_presets, "HIGH_DENSITY", None)
                     )
-                    stereo.setDefaultProfilePreset(depth_preset)
+                    if depth_preset is not None:
+                        stereo.setDefaultProfilePreset(depth_preset)
+                    try:
+                        stereo.setLeftRightCheck(True)
+                    except Exception:
+                        pass
+                    try:
+                        stereo.setSubpixel(True)
+                    except Exception:
+                        pass
                     stereo.setDepthAlign(dai.CameraBoardSocket.CAM_A)
-                    # StereoDepth sensors do not generally support the color
-                    # stream's 1920x1080 output size. Requesting that size
-                    # makes DepthAI reject the graph and silently leaves the
-                    # application in RGB-only mode. Keep the native stereo
-                    # resolution; alignment still follows CAM_A and the
-                    # recorder accepts the actual depth frame dimensions.
+                    # Request compact 640x400 stereo streams so 1080p NV12 + MJPEG +
+                    # 16-bit depth all fit comfortably inside 1 Gbps Ethernet at full
+                    # 30 FPS (falling back to native stereo resolution if unsupported).
                     logger.info(
-                        "[PIPELINE] StereoDepth using native supported depth resolution "
+                        f"[PIPELINE] StereoDepth targeting 640x400 @ {raw_fps}fps "
                         f"(color stream is {width}x{height})"
                     )
 
@@ -697,9 +720,18 @@ class OakCameraService:
                     try:
                         mono_left = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_B)
                         mono_right = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_C)
-                        mono_left_out = mono_left.requestFullResolutionOutput()
-                        mono_right_out = mono_right.requestFullResolutionOutput()
-                        logger.info("[PIPELINE] Stereo cameras configured with unified dai.node.Camera (RVC4/v3)")
+                        try:
+                            mono_left_out = mono_left.requestOutput((640, 400), fps=raw_fps)
+                            mono_right_out = mono_right.requestOutput((640, 400), fps=raw_fps)
+                            logger.info(
+                                f"[PIPELINE] Stereo cameras configured with unified dai.node.Camera 640x400 @ {raw_fps}fps (RVC4/v3)"
+                            )
+                        except Exception as res_err:
+                            logger.info(
+                                f"[PIPELINE] Stereo 640x400 unavailable ({res_err}); using full-resolution stereo output @ {raw_fps}fps"
+                            )
+                            mono_left_out = mono_left.requestFullResolutionOutput(fps=raw_fps)
+                            mono_right_out = mono_right.requestFullResolutionOutput(fps=raw_fps)
                     except Exception as unified_err:
                         # Legacy DepthAI v2 / RVC2: MonoCamera node
                         logger.debug(f"[PIPELINE] Trying legacy MonoCamera nodes: {unified_err}")
@@ -754,9 +786,12 @@ class OakCameraService:
                 self._is_running = False
                 self._mjpeg_dai_queue = None
                 self._raw_dai_queue = None
+                self._depth_dai_queue = None
                 self._control_queue = None
                 self._latest_jpeg = None
                 self._latest_bgr = None
+                self._latest_depth_raw = None
+                self.has_depth = False
             logger.info("[PIPELINE] Cleaned up")
 
     def _on_device_lost(self, reason: str = "Device disconnected") -> None:
@@ -932,10 +967,10 @@ class OakCameraService:
         try:
             while not self._mjpeg_stop.is_set():
                 if self._mjpeg_dai_queue is None:
-                    time.sleep(0.001)
+                    time.sleep(0.01)
                     continue
 
-                pkt = self._mjpeg_dai_queue.tryGet()
+                pkt = _queue_get_timeout(self._mjpeg_dai_queue, timeout_ms=100)
                 if pkt is None:
                     has_subscribers = bool(self._stream_subscribers) or (self._stream_queue is not None)
                     if (
@@ -948,37 +983,49 @@ class OakCameraService:
                         logger.error("[MJPEG] Watchdog: No frames from camera for 15.0s during active streaming — device wedged")
                         self._on_device_lost("No frames from camera (watchdog timeout)")
                         break
-                    time.sleep(0.001)
                     continue
 
                 last_frame_ts = time.time()
-                try:
-                    jpeg = pkt.getData().tobytes()
-                except Exception as e:
-                    logger.warning(f"[MJPEG] Frame extraction failed: {e}")
-                    continue
+                brightness_val = int(self.current_brightness or 0)
+                has_subscribers = bool(self._stream_subscribers) or (self._stream_queue is not None)
 
-                # When brightness is neutral (0), push hardware VPU JPEG (0 CPU overhead)
-                if int(self.current_brightness or 0) == 0:
+                # When brightness is neutral (0), push hardware VPU JPEG (0 CPU overhead).
+                # When software brightness is active (b != 0), _convert_loop encodes & pushes
+                # brightness-adjusted JPEGs, so we only drain the VPU queue here without copying bytes.
+                if brightness_val == 0:
+                    try:
+                        jpeg = pkt.getData().tobytes()
+                    except Exception as e:
+                        logger.warning(f"[MJPEG] Frame extraction failed: {e}")
+                        continue
+
                     self._latest_jpeg = jpeg
                     frames += 1
 
-                    loop = self._server_loop
-                    if loop is not None and not loop.is_closed():
-                        loop.call_soon_threadsafe(self._push_sync, jpeg)
-                        frames_pushed += 1
-                    else:
-                        self._push_sync(jpeg)
-                        frames_pushed += 1
+                    if has_subscribers:
+                        loop = self._server_loop
+                        if loop is not None and not loop.is_closed():
+                            loop.call_soon_threadsafe(self._push_sync, jpeg)
+                            frames_pushed += 1
+                        else:
+                            self._push_sync(jpeg)
+                            frames_pushed += 1
 
                 now = time.time()
                 if now - last_log >= 2.0:
                     elapsed = now - last_log
-                    mjpeg_fps = frames / elapsed
+                    sw_frames = self._sw_mjpeg_frames
+                    sw_pushed = self._sw_mjpeg_pushed
+                    self._sw_mjpeg_frames = 0
+                    self._sw_mjpeg_pushed = 0
+                    total_frames = frames + sw_frames
+                    total_pushed = frames_pushed + sw_pushed
+                    mjpeg_fps = total_frames / elapsed
+                    source_tag = "hw" if brightness_val == 0 else f"sw(brightness={brightness_val})"
                     logger.info(
-                        f"[MJPEG] FPS: {mjpeg_fps:.1f} | "
+                        f"[MJPEG] FPS: {mjpeg_fps:.1f} ({source_tag}) | "
                         f"subscribers: {len(self._stream_subscribers)} | "
-                        f"pushed: {frames_pushed} | dropped: {frames_dropped}"
+                        f"pushed: {total_pushed} | dropped: {frames_dropped}"
                     )
                     frames = 0
                     frames_pushed = 0
@@ -1087,12 +1134,11 @@ class OakCameraService:
         try:
             while not self._hires_stop.is_set():
                 if self._raw_dai_queue is None:
-                    time.sleep(0.001)
+                    time.sleep(0.01)
                     continue
 
-                pkt = self._raw_dai_queue.tryGet()
+                pkt = _queue_get_timeout(self._raw_dai_queue, timeout_ms=100)
                 if pkt is None:
-                    time.sleep(0.005)
                     continue
 
                 try:
@@ -1192,15 +1238,15 @@ class OakCameraService:
                     logger.info(f"[CONVERT] First frame received — shape={raw_bgr.shape} | ae_limit_us={self._ae_limit_us} | configured_fps={self._configured_fps}")
                     _first_frame_logged = True
 
-                # Software Brightness via cached LUT (negative-safe with zero-copy aliasing guard)
+                # Software Brightness via cached LUT (pkt.getCvFrame() returns a fresh array)
                 b = int(self.current_brightness or 0)
                 if b == 0:
-                    display_bgr = raw_bgr.copy()
+                    display_bgr = raw_bgr
                 else:
                     try:
                         display_bgr = cv2.LUT(raw_bgr, _get_brightness_lut(b))
                     except Exception:
-                        display_bgr = raw_bgr.copy()
+                        display_bgr = raw_bgr
 
                 if self.control_mode == "auto" and not self._calibrating:
                     self._run_monitor(display_bgr)
@@ -1212,18 +1258,20 @@ class OakCameraService:
                 self._latest_frame_data = (display_bgr, seq_num, ts_sec)
 
                 # When software brightness is active (b != 0), encode and push display_bgr to stream
-                # so the live preview in the browser has 100% true parity with the recording
-                if b != 0:
+                # ONLY when subscribers are connected so we don't waste CPU when idle.
+                if b != 0 and (bool(self._stream_subscribers) or self._stream_queue is not None):
                     try:
-                        ret, buf = cv2.imencode(".jpg", display_bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
+                        ret, buf = cv2.imencode(".jpg", display_bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])
                         if ret:
                             jpeg_bytes = buf.tobytes()
                             self._latest_jpeg = jpeg_bytes
+                            self._sw_mjpeg_frames += 1
                             loop = self._server_loop
                             if loop is not None and not loop.is_closed():
                                 loop.call_soon_threadsafe(self._push_sync, jpeg_bytes)
                             else:
                                 self._push_sync(jpeg_bytes)
+                            self._sw_mjpeg_pushed += 1
                     except Exception as enc_err:
                         logger.debug(f"[CONVERT] Brightness stream encode failed: {enc_err}")
 
@@ -1281,11 +1329,12 @@ class OakCameraService:
     def _depth_loop(self) -> None:
         """Drains StereoDepth queue, caches 16-bit millimeter depth & feeds recording session."""
         logger.info("[DEPTH] Thread running")
+        _first_depth_logged = False
         while not self._depth_stop.is_set() and self._is_running:
             if self._depth_dai_queue is None:
                 break
             try:
-                pkt = self._depth_dai_queue.get()
+                pkt = _queue_get_timeout(self._depth_dai_queue, timeout_ms=100)
                 if pkt is None:
                     continue
                 depth_raw = pkt.getFrame()
@@ -1293,6 +1342,10 @@ class OakCameraService:
                     continue
                 if depth_raw.dtype != np.uint16:
                     depth_raw = np.ascontiguousarray(depth_raw, dtype=np.uint16)
+
+                if not _first_depth_logged:
+                    logger.info(f"[DEPTH] First depth frame received — shape={depth_raw.shape} dtype={depth_raw.dtype}")
+                    _first_depth_logged = True
 
                 self._latest_depth_raw = depth_raw
                 self.has_depth = True
@@ -1434,7 +1487,7 @@ class OakCameraService:
 
     def _run_monitor(self, frame: np.ndarray) -> None:
         now = time.time()
-        if now - self._monitor_last_calib_time < 5.0 or now - self._monitor_last_check < 0.5:
+        if now - self._monitor_last_calib_time < 15.0 or now - self._monitor_last_check < 0.5:
             return
         
         self._monitor_last_check = now
@@ -1459,7 +1512,7 @@ class OakCameraService:
         if sharpness_drop or brightness_shift:
             if self._monitor_bad_start_time is None:
                 self._monitor_bad_start_time = now
-            elif now - self._monitor_bad_start_time > 1.0:
+            elif now - self._monitor_bad_start_time > 2.0:
                 logger.info(f"[MONITOR] Triggering auto-calibration. Sharpness: {sharpness:.1f} (baseline: {self._monitor_baseline_sharpness:.1f}), Brightness: {brightness:.1f} (baseline: {self._monitor_baseline_brightness:.1f})")
                 self._monitor_last_calib_time = now
                 self._monitor_baseline_sharpness = None
@@ -1635,33 +1688,82 @@ class OakCameraService:
         prev_focus = self.current_focus
         
         try:
+            # Allow enough exposure time for the configured FPS (e.g. up to 25ms at
+            # 30fps) so indoor scenes don't force ISO/Gain above 1000+.
+            ae_limit_us = max(8000, min(25000, int(1_000_000 / max(1, self._configured_fps)) - 5000))
+            self._ae_limit_us = ae_limit_us
+
             settle = dai.CameraControl()
             settle.setAutoExposureEnable()
-            settle.setAutoExposureLimit(10000)
+            settle.setAutoExposureLimit(ae_limit_us)
             settle.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
             if self.current_focus is not None:
                 settle.setManualFocus(self.current_focus)
             self._control_queue.send(settle)
-            
-            time.sleep(1.5)
-            
-            latest = self._latest_metadata
-            if latest is None:
-                raise RuntimeError("No exposure and gain metadata arrived during calibration")
-            exp_us, iso, lens = latest
-            
+
+            # Wait for AE to converge and collect multiple stabilized metadata samples
+            # instead of locking onto a single transient frame.
+            time.sleep(0.8)
+            exp_samples: list[int] = []
+            iso_samples: list[int] = []
+            deadline = time.time() + 1.4
+            while time.time() < deadline:
+                latest = self._latest_metadata
+                if latest is not None:
+                    e_us, s_iso, _ = latest
+                    if e_us > 0 and s_iso > 0:
+                        exp_samples.append(int(e_us))
+                        iso_samples.append(int(s_iso))
+                        if len(exp_samples) >= 5:
+                            recent_e = exp_samples[-5:]
+                            recent_i = iso_samples[-5:]
+                            e_span = (max(recent_e) - min(recent_e)) / max(1, max(recent_e))
+                            i_span = (max(recent_i) - min(recent_i)) / max(1, max(recent_i))
+                            if e_span <= 0.05 and i_span <= 0.05:
+                                break
+                time.sleep(0.1)
+
+            if not exp_samples:
+                latest = self._latest_metadata
+                if latest is None:
+                    raise RuntimeError("No exposure and gain metadata arrived during calibration")
+                exp_samples.append(int(latest[0]))
+                iso_samples.append(int(latest[1]))
+
+            # Use median of the final settled window for rock-solid values
+            tail_e = sorted(exp_samples[-5:])
+            tail_i = sorted(iso_samples[-5:])
+            raw_exp_us = tail_e[len(tail_e) // 2]
+            raw_iso = tail_i[len(tail_i) // 2]
+
+            limits = getattr(self, "_discovered_limits", None)
+            exp_lo = limits.exposure_us.min if limits else 86
+            exp_hi = min(ae_limit_us, limits.exposure_us.max) if limits else ae_limit_us
+            gain_lo = max(100, limits.gain.min) if limits else 100
+            gain_hi = min(1600, limits.gain.max) if limits else 1600
+
+            exp_us = int(max(exp_lo, min(exp_hi, raw_exp_us)))
+            iso = int(max(gain_lo, min(gain_hi, raw_iso)))
+
             lock = dai.CameraControl()
             lock.setAutoFocusMode(dai.CameraControl.AutoFocusMode.OFF)
             if self.current_focus is not None:
                 lock.setManualFocus(self.current_focus)
             lock.setManualExposure(exp_us, iso)
+            lock.setContrast(0)
             self._control_queue.send(lock)
-            
+
             self.current_exposure_us = exp_us
-            self.current_gain = max(100, min(1600, iso))
+            self.current_gain = iso
             self.control_mode = "auto"
             self.current_brightness, self.current_contrast = 0, 0
             self.auto_exposure_enabled = self.auto_focus_enabled = False
+            self._last_sent_exposure_us = exp_us
+            self._last_sent_gain = iso
+            self._last_sent_focus = self.current_focus
+            self._last_sent_contrast = 0
+            self._monitor_baseline_sharpness = None
+            self._monitor_last_calib_time = time.time()
             self._save_calibrated_preset()
             return {"status": "ok", **self._camera_settings()}
         except Exception as e:
@@ -1969,6 +2071,9 @@ class OakCameraService:
                 "this session will contain color video only"
             )
 
+        latest_d = self._latest_depth_raw
+        d_height, d_width = (int(latest_d.shape[0]), int(latest_d.shape[1])) if latest_d is not None else (None, None)
+
         rec_path = _start(
             session_id=session_id,
             width=width,
@@ -1981,6 +2086,8 @@ class OakCameraService:
             camera_name=cname,
             clip_duration_minutes=clip_mins,
             record_depth=depth_active,
+            depth_width=d_width,
+            depth_height=d_height,
         )
         from app.services.recording_service import active_recordings
         self._active_recording = active_recordings.get(session_id)

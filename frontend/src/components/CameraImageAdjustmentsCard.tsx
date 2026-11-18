@@ -64,7 +64,8 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
     }
   }, [config?.id, config?.exposure, config?.gain, config?.focus, config?.brightness, config?.contrast, config?.controlMode]);
 
-  // Actual network dispatch with in-flight queuing
+  // Actual network dispatch with in-flight queuing (honors THROTTLE_MS even on fast responses)
+  const THROTTLE_MS = 150;
   const dispatchToBackend = useCallback(async (payload: any) => {
     if (inFlightRef.current) {
       pendingUpdateRef.current = payload;
@@ -83,18 +84,33 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
     } finally {
       inFlightRef.current = false;
       if (pendingUpdateRef.current) {
-        const next = pendingUpdateRef.current;
-        pendingUpdateRef.current = null;
-        dispatchToBackend(next);
+        const remaining = THROTTLE_MS - (Date.now() - lastSentTimeRef.current);
+        if (remaining <= 0) {
+          if (throttleTimerRef.current) {
+            clearTimeout(throttleTimerRef.current);
+            throttleTimerRef.current = null;
+          }
+          const next = pendingUpdateRef.current;
+          pendingUpdateRef.current = null;
+          dispatchToBackend(next);
+        } else if (!throttleTimerRef.current) {
+          throttleTimerRef.current = setTimeout(() => {
+            throttleTimerRef.current = null;
+            if (pendingUpdateRef.current && !inFlightRef.current) {
+              const next = pendingUpdateRef.current;
+              pendingUpdateRef.current = null;
+              dispatchToBackend(next);
+            }
+          }, remaining);
+        }
       }
     }
   }, [cameraId, config?.id]);
 
-  // Throttled schedule: immediate on first event, paced at ~40ms while dragging, guaranteed trailing
+  // Throttled schedule: immediate on first event, paced at ~150ms while dragging, guaranteed trailing
   const scheduleDispatch = useCallback((payload: any) => {
     const now = Date.now();
     const elapsed = now - lastSentTimeRef.current;
-    const THROTTLE_MS = 150;
 
     if (elapsed >= THROTTLE_MS && !inFlightRef.current) {
       if (throttleTimerRef.current) {
@@ -107,7 +123,7 @@ export const CameraImageAdjustmentsCard: React.FC<CameraImageAdjustmentsCardProp
       if (!throttleTimerRef.current) {
         throttleTimerRef.current = setTimeout(() => {
           throttleTimerRef.current = null;
-          if (pendingUpdateRef.current) {
+          if (pendingUpdateRef.current && !inFlightRef.current) {
             const next = pendingUpdateRef.current;
             pendingUpdateRef.current = null;
             dispatchToBackend(next);

@@ -159,7 +159,8 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
     }
   }, [config.exposure, config.gain, config.focus, config.brightness, config.contrast]);
 
-  // Actual network dispatch
+  // Actual network dispatch (respects THROTTLE_MS even when backend responds in <5ms)
+  const THROTTLE_MS = 120;
   const dispatchToBackend = useCallback(
     async (payload: any) => {
       if (inFlightRef.current) {
@@ -176,21 +177,36 @@ export const CameraTuningPopover: React.FC<CameraTuningPopoverProps> = ({
       } finally {
         inFlightRef.current = false;
         if (pendingUpdateRef.current) {
-          const next = pendingUpdateRef.current;
-          pendingUpdateRef.current = null;
-          dispatchToBackend(next);
+          const remaining = THROTTLE_MS - (Date.now() - lastSentTimeRef.current);
+          if (remaining <= 0) {
+            if (throttleTimerRef.current) {
+              clearTimeout(throttleTimerRef.current);
+              throttleTimerRef.current = null;
+            }
+            const next = pendingUpdateRef.current;
+            pendingUpdateRef.current = null;
+            dispatchToBackend(next);
+          } else if (!throttleTimerRef.current) {
+            throttleTimerRef.current = setTimeout(() => {
+              throttleTimerRef.current = null;
+              if (pendingUpdateRef.current && !inFlightRef.current) {
+                const next = pendingUpdateRef.current;
+                pendingUpdateRef.current = null;
+                dispatchToBackend(next);
+              }
+            }, remaining);
+          }
         }
       }
     },
     [cameraId]
   );
 
-  // Throttled schedule: immediate on first event, paced at ~100ms while dragging
+  // Throttled schedule: immediate on first event, paced at ~120ms while dragging, guaranteed trailing
   const scheduleDispatch = useCallback(
     (payload: any) => {
       const now = Date.now();
       const elapsed = now - lastSentTimeRef.current;
-      const THROTTLE_MS = 100;
 
       if (elapsed >= THROTTLE_MS && !inFlightRef.current) {
         if (throttleTimerRef.current) {

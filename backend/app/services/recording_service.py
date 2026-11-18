@@ -27,6 +27,7 @@ logger = logging.getLogger("recording-service")
 active_recordings: dict = {}
 
 _NVENC_FUNCTIONAL: bool | None = None
+_NVENC_OPTIONS: dict[str, str] = {"preset": "p4", "rc": "vbr", "cq": "18"}
 _NVENC_LOCK = threading.Lock()
 
 # When True, MKV (FFV1) bakes non-zero Software Brightness into the NV12 luma (Y)
@@ -49,7 +50,7 @@ def _get_luma_lut(brightness: int) -> np.ndarray:
 
 
 def _is_nvenc_functional() -> bool:
-    global _NVENC_FUNCTIONAL
+    global _NVENC_FUNCTIONAL, _NVENC_OPTIONS
     if _NVENC_FUNCTIONAL is not None:
         return _NVENC_FUNCTIONAL
     with _NVENC_LOCK:
@@ -58,24 +59,43 @@ def _is_nvenc_functional() -> bool:
         if "h264_nvenc" not in av.codec.codecs_available:
             _NVENC_FUNCTIONAL = False
             return False
-        try:
-            devnull = "nul" if os.name == "nt" else "/dev/null"
-            c = av.open(devnull, mode="w", format="mp4")
-            s = c.add_stream("h264_nvenc", rate=30)
-            s.width = 64
-            s.height = 64
-            s.pix_fmt = "yuv420p"
-            s.options = {"preset": "fast"}
-            f = av.VideoFrame(64, 64, "yuv420p")
-            s.encode(f)
-            c.close()
-            _NVENC_FUNCTIONAL = True
-            logger.info("[RECORD] Hardware acceleration verified: h264_nvenc is functional")
-            return True
-        except Exception as e:
-            logger.info(f"[RECORD] NVENC not functional on this system ({e}) — using optimized libx264")
-            _NVENC_FUNCTIONAL = False
-            return False
+        # NVENC hardware enforces a minimum frame size (~145x49..256x256 depending
+        # on GPU generation). Probing at 256x256 avoids false EINVAL (22) rejections
+        # that occur at 64x64 and tests the codec context directly without muxer overhead.
+        candidate_options = (
+            {"preset": "p4", "rc": "vbr", "cq": "18"},
+            {"preset": "fast", "cq": "18"},
+            {"preset": "fast"},
+        )
+        last_err: Exception | None = None
+        for opts in candidate_options:
+            ctx = None
+            try:
+                ctx = av.CodecContext.create("h264_nvenc", "w")
+                ctx.width = 256
+                ctx.height = 256
+                ctx.pix_fmt = "yuv420p"
+                ctx.framerate = 30
+                ctx.options = dict(opts)
+                ctx.open()
+                frame = av.VideoFrame(256, 256, "yuv420p")
+                ctx.encode(frame)
+                ctx.encode(None)
+                _NVENC_OPTIONS = dict(opts)
+                _NVENC_FUNCTIONAL = True
+                logger.info(f"[RECORD] Hardware acceleration verified: h264_nvenc is functional (options={opts})")
+                return True
+            except Exception as e:
+                last_err = e
+            finally:
+                if ctx is not None:
+                    try:
+                        ctx.close()
+                    except Exception:
+                        pass
+        logger.info(f"[RECORD] NVENC not functional on this system ({last_err}) — using optimized libx264")
+        _NVENC_FUNCTIONAL = False
+        return False
 
 
 class RecordingSession:
@@ -147,7 +167,7 @@ class RecordingSession:
             ext        = ".mp4"
             if _is_nvenc_functional():
                 codec_name = "h264_nvenc"
-                options    = {"preset": "fast", "cq": "18"}
+                options    = dict(_NVENC_OPTIONS)
             else:
                 codec_name = "libx264"
                 options    = {"preset": "ultrafast", "tune": "zerolatency", "crf": "19"}
@@ -168,6 +188,7 @@ class RecordingSession:
         self.depth_height = int(depth_height or height)
         self._saw_depth = False
         self._depth_lock = threading.Lock()
+        self._depth_cond = threading.Condition(self._depth_lock)
         self._latest_depth_raw: np.ndarray | None = None
         self._depth_buffer: deque = deque(maxlen=60)
         self._depth_raw_container = None
@@ -191,6 +212,7 @@ class RecordingSession:
         self.frame_queue = queue.Queue()
         self.is_running  = False
         self._start_mono = time.monotonic()
+        self._first_frame_mono: float | None = None
         self._first_cam_ts_sec: float | None = None
         self._first_cam_offset_ms: int = 0
         self._total_frames = 0
@@ -333,8 +355,9 @@ class RecordingSession:
                 self._container = None
                 self._stream = None
 
-        if self.record_depth or self._saw_depth:
-            self._open_depth_containers(start_pts_ms)
+        # Depth containers are opened lazily on the first actual depth frame in
+        # _worker() so the container dimensions always match the real depth frame
+        # shape (e.g. 640x400, 1280x800, or 1920x1080) with zero mismatch.
 
     def _open_depth_containers(self, start_pts_ms: int):
         self._current_clip_depth_frames = 0
@@ -402,9 +425,26 @@ class RecordingSession:
                     pass
             logger.info(f"[RECORD] Opened colormapped depth preview container at {self._temp_depth_prev_path}")
         except Exception as ex_dp:
-            logger.warning(f"[RECORD] Failed to open depth preview container: {ex_dp}")
-            self._depth_prev_container = None
-            self._depth_prev_stream = None
+            if self.fmt == "MP4" and self.codec_name != "libx264":
+                logger.warning(f"[RECORD] Failed to open depth preview container with {self.codec_name}: {ex_dp}. Retrying with libx264...")
+                try:
+                    self._depth_prev_container = av.open(self._temp_depth_prev_path, mode="w", options=container_options)
+                    self._depth_prev_stream = self._depth_prev_container.add_stream("libx264", rate=1000)
+                    self._depth_prev_stream.width = self.depth_width
+                    self._depth_prev_stream.height = self.depth_height
+                    self._depth_prev_stream.pix_fmt = self.pix_fmt
+                    self._depth_prev_stream.time_base = Fraction(1, 1000)
+                    self._depth_prev_stream.codec_context.time_base = Fraction(1, 1000)
+                    self._depth_prev_stream.options = {"preset": "ultrafast", "tune": "zerolatency", "crf": "21"}
+                    logger.info(f"[RECORD] Fallback succeeded: opened depth preview container with libx264")
+                except Exception as ex_dp2:
+                    logger.warning(f"[RECORD] Failed to open depth preview container fallback: {ex_dp2}")
+                    self._depth_prev_container = None
+                    self._depth_prev_stream = None
+            else:
+                logger.warning(f"[RECORD] Failed to open depth preview container: {ex_dp}")
+                self._depth_prev_container = None
+                self._depth_prev_stream = None
 
     def _close_clip(self, end_pts_ms: int):
         if not self._container or not self._stream:
@@ -673,11 +713,20 @@ class RecordingSession:
 
                     # 2. Encode depth video frames (Lossless 16-bit raw + Turbo colormap preview)
                     if depth_uint16 is not None:
+                        dh, dw = depth_uint16.shape[:2]
                         if not self._depth_raw_container and (self.record_depth or self._saw_depth):
+                            self.depth_width = int(dw)
+                            self.depth_height = int(dh)
                             self._open_depth_containers(self._current_clip_start_pts_ms)
 
                         # 2a. Lossless Raw Depth Frame (FFV1 gray16le — bit-exact millimeters Z preserved)
                         if self._depth_raw_container and self._depth_raw_stream is not None:
+                            if (dw, dh) != (self.depth_width, self.depth_height):
+                                depth_uint16 = cv2.resize(
+                                    depth_uint16,
+                                    (self.depth_width, self.depth_height),
+                                    interpolation=cv2.INTER_NEAREST,
+                                )
                             rel_pts_raw = rel_pts
                             if rel_pts_raw <= self._last_encoded_depth_raw_pts:
                                 rel_pts_raw = self._last_encoded_depth_raw_pts + 1
@@ -777,40 +826,83 @@ class RecordingSession:
             depth_raw_16 = np.ascontiguousarray(depth_raw_16)
 
         d_copy = depth_raw_16.copy()
-        with self._depth_lock:
+        with self._depth_cond:
             self._saw_depth = True
             self.record_depth = True
             self.depth_height, self.depth_width = depth_raw_16.shape[:2]
             self._latest_depth_raw = d_copy
             self._depth_buffer.append((cam_ts_sec, seq_num, d_copy))
+            self._depth_cond.notify_all()
+
+    def _find_best_depth_locked(
+        self, cam_ts_sec: float | None, seq_num: int | None
+    ) -> tuple[np.ndarray | None, float | None, bool]:
+        """Return (frame, diff_sec, passed_target) while holding _depth_cond."""
+        if not self._depth_buffer:
+            return self._latest_depth_raw, None, False
+
+        # 1. Exact sequence number match (hardware frame counter)
+        if seq_num is not None:
+            for item in self._depth_buffer:
+                if item[1] is not None and item[1] == seq_num:
+                    diff = abs(item[0] - cam_ts_sec) if (item[0] is not None and cam_ts_sec is not None) else 0.0
+                    return item[2], diff, True
+
+        # 2. Closest hardware timestamp match (exposure start clock)
+        if cam_ts_sec is not None:
+            best_item = None
+            min_diff = float("inf")
+            newest_ts = None
+            for item in self._depth_buffer:
+                if item[0] is not None:
+                    if newest_ts is None or item[0] > newest_ts:
+                        newest_ts = item[0]
+                    diff = abs(item[0] - cam_ts_sec)
+                    if diff < min_diff:
+                        min_diff = diff
+                        best_item = item
+            passed = newest_ts is not None and newest_ts >= (cam_ts_sec + 0.015)
+            if best_item is not None and min_diff <= 0.08:
+                return best_item[2], min_diff, passed
+            return self._latest_depth_raw, (min_diff if best_item is not None else None), passed
+
+        return self._latest_depth_raw, None, True
 
     def _match_depth_frame(self, cam_ts_sec: float | None, seq_num: int | None) -> np.ndarray | None:
-        """Find the exact matching depth frame for this color frame using sequence number or hardware timestamp."""
-        with self._depth_lock:
-            if not self._depth_buffer:
-                return self._latest_depth_raw
+        """Find the exact same-shutter depth frame for this color frame.
 
-            # 1. Exact sequence number match (hardware frame counter)
-            if seq_num is not None:
-                for item in self._depth_buffer:
-                    if item[1] is not None and item[1] == seq_num:
-                        return item[2]
+        StereoDepth typically finishes 15-30ms after raw NV12 on the VPU. Waiting
+        briefly on the background recording worker lets the matching depth frame
+        arrive so RGB[k] and Depth[k] are 1:1 frame-and-timestamp synchronized
+        (including frame 0) without blocking live preview.
+        """
+        if not (self.record_depth or self._saw_depth):
+            return None
 
-            # 2. Closest hardware timestamp match (exposure start clock)
-            if cam_ts_sec is not None:
-                best_item = None
-                min_diff = float("inf")
-                for item in self._depth_buffer:
-                    if item[0] is not None:
-                        diff = abs(item[0] - cam_ts_sec)
-                        if diff < min_diff:
-                            min_diff = diff
-                            best_item = item
-                if best_item is not None and min_diff < 0.05:  # Within 50ms tolerance
-                    return best_item[2]
+        with self._depth_cond:
+            frame, diff_sec, passed = self._find_best_depth_locked(cam_ts_sec, seq_num)
+            is_exact = (frame is not None) and (
+                diff_sec is not None and diff_sec <= 0.015
+            )
+            if is_exact or (frame is not None and cam_ts_sec is None):
+                return frame
 
-            # 3. Fallback to latest
-            return self._latest_depth_raw
+            # Wait up to 200ms on startup before the first depth frame arrives,
+            # or up to 55ms for the matching StereoDepth frame to finish on VPU.
+            wait_sec = 0.20 if not self._depth_buffer else 0.055
+            deadline = time.monotonic() + wait_sec
+            while self.is_running:
+                if frame is not None and (
+                    (diff_sec is not None and diff_sec <= 0.015) or passed
+                ):
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self._depth_cond.wait(timeout=remaining)
+                frame, diff_sec, passed = self._find_best_depth_locked(cam_ts_sec, seq_num)
+
+            return frame
 
     def add_dual_frame(
         self,
@@ -846,20 +938,26 @@ class RecordingSession:
                 self._camera_frames_missing += (seq_num - self._last_seq_num - 1)
             self._last_seq_num = seq_num
 
+        # Match depth BEFORE assigning frame-0 timestamp so MP4 and MKV start
+        # at the exact same 0.000s timestamp and have identical 1:1 frame counts.
+        d_frame = self._match_depth_frame(cam_ts_sec, seq_num)
+
         if cam_ts_sec is not None:
             if self._first_cam_ts_sec is None:
                 self._first_cam_ts_sec = cam_ts_sec
-                self._first_cam_offset_ms = max(0, int((time.monotonic() - self._start_mono) * 1000))
-            pts_ms = self._first_cam_offset_ms + int((cam_ts_sec - self._first_cam_ts_sec) * 1000)
+                self._first_cam_offset_ms = 0
+                self._first_frame_mono = time.monotonic()
+            pts_ms = max(0, int(round((cam_ts_sec - self._first_cam_ts_sec) * 1000)))
         else:
-            pts_ms = int((time.monotonic() - self._start_mono) * 1000)
+            if self._first_frame_mono is None:
+                self._first_frame_mono = time.monotonic()
+            pts_ms = max(0, int((time.monotonic() - self._first_frame_mono) * 1000))
 
         if pts_ms <= self._last_pts_ms:
             pts_ms = self._last_pts_ms + 1
         self._last_pts_ms = pts_ms
 
         color_payload = ("nv12", y_plane, uv_plane, int(brightness or 0))
-        d_frame = self._match_depth_frame(cam_ts_sec, seq_num)
         if d_frame is not None and (self.record_depth or self._saw_depth):
             payload = ("dual", color_payload, d_frame)
         else:
@@ -879,13 +977,20 @@ class RecordingSession:
                 self._camera_frames_missing += seq_num - self._last_seq_num - 1
             self._last_seq_num = seq_num
 
+        # Match depth BEFORE assigning frame-0 timestamp so MP4 and MKV start
+        # at the exact same 0.000s timestamp and have identical 1:1 frame counts.
+        d_frame = self._match_depth_frame(cam_ts_sec, seq_num)
+
         if cam_ts_sec is not None:
             if self._first_cam_ts_sec is None:
                 self._first_cam_ts_sec = cam_ts_sec
-                self._first_cam_offset_ms = max(0, int((time.monotonic() - self._start_mono) * 1000))
-            pts_ms = self._first_cam_offset_ms + int((cam_ts_sec - self._first_cam_ts_sec) * 1000)
+                self._first_cam_offset_ms = 0
+                self._first_frame_mono = time.monotonic()
+            pts_ms = max(0, int(round((cam_ts_sec - self._first_cam_ts_sec) * 1000)))
         else:
-            pts_ms = int((time.monotonic() - self._start_mono) * 1000)
+            if self._first_frame_mono is None:
+                self._first_frame_mono = time.monotonic()
+            pts_ms = max(0, int((time.monotonic() - self._first_frame_mono) * 1000))
         if pts_ms <= self._last_pts_ms:
             pts_ms = self._last_pts_ms + 1
         self._last_pts_ms = pts_ms
@@ -895,7 +1000,6 @@ class RecordingSession:
         color_payload = np.ascontiguousarray(bgr)
         if copy_frame:
             color_payload = color_payload.copy()
-        d_frame = self._match_depth_frame(cam_ts_sec, seq_num)
         if d_frame is not None and (self.record_depth or self._saw_depth):
             payload = ("dual", color_payload, d_frame)
         else:
@@ -925,7 +1029,8 @@ class RecordingSession:
 
     def stop(self) -> dict:
         if self._last_frame_payload is not None:
-            pad_pts_ms = int((time.monotonic() - self._start_mono) * 1000)
+            ref_mono = self._first_frame_mono if self._first_frame_mono is not None else self._start_mono
+            pad_pts_ms = int((time.monotonic() - ref_mono) * 1000)
             if pad_pts_ms <= self._last_pts_ms:
                 pad_pts_ms = self._last_pts_ms + 1
             gap_ms = pad_pts_ms - self._last_pts_ms
@@ -938,6 +1043,8 @@ class RecordingSession:
 
         logger.info(f"[RECORD] Stopping session — {self.frame_queue.qsize()} frames in queue")
         self.is_running = False
+        with self._depth_cond:
+            self._depth_cond.notify_all()
         if self.thread is not None:
             self.thread.join(timeout=30.0)
             if self.thread.is_alive():
