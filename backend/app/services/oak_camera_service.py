@@ -177,6 +177,9 @@ class OakCameraService:
         self.focus_available: bool = True
         self.auto_exposure_enabled: bool = False
         self.auto_focus_enabled: bool = False
+        # Auto mode performs one autofocus scan when entered, then keeps the
+        # settled lens position. It must not retrigger on every control update.
+        self._auto_focus_triggered: bool = False
         self._latest_metadata: tuple[int, int, int | None] | None = None
 
         # Tracking for partial control dispatch
@@ -1295,7 +1298,9 @@ class OakCameraService:
                 self.has_depth = True
 
                 rec = self._active_recording
-                if rec is not None:
+                # Respect the recording request. StereoDepth may remain alive
+                # for preview while a session has depth recording disabled.
+                if rec is not None and getattr(rec, "record_depth", False):
                     cam_ts_sec = None
                     seq_num = None
                     try:
@@ -1497,6 +1502,8 @@ class OakCameraService:
         requested_mode = (control_mode or "").lower()
         if requested_mode in {"auto", "manual"}:
             self.control_mode = requested_mode
+            if requested_mode == "manual":
+                self._auto_focus_triggered = False
         if requested_mode == "manual" or (not requested_mode and any(v is not None for v in (exposure, gain, focus))):
             self.control_mode = "manual"
 
@@ -1539,7 +1546,15 @@ class OakCameraService:
         if self.control_mode == "auto":
             self.auto_exposure_enabled = self.auto_focus_enabled = True
             ctrl.setAutoExposureEnable()
-            ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.CONTINUOUS_VIDEO)
+            # One-shot autofocus: scan once when auto mode is entered, then
+            # hold the settled lens position instead of continuously hunting.
+            ctrl.setAutoFocusMode(dai.CameraControl.AutoFocusMode.AUTO)
+            if not self._auto_focus_triggered:
+                try:
+                    ctrl.setAutoFocusTrigger()
+                except Exception:
+                    pass
+                self._auto_focus_triggered = True
             has_updates = True
         elif force_full or self._last_sent_exposure_us is None:
             # Full apply (startup or reconnect): dispatch all registers
@@ -2151,6 +2166,7 @@ class OakCameraService:
                         raise pipe_err
 
                 self._is_running = True
+                self._auto_focus_triggered = False
 
                 self._start_capture_threads()
 
